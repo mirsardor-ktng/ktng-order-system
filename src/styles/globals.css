@@ -1,0 +1,189 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+/* Force deep dark high-contrast theme globally */
+:root {
+  --background: 226 50% 5%;
+  --foreground: 210 40% 98%;
+  
+  --card: 224 45% 8%;
+  --card-foreground: 210 40% 98%;
+  
+  --border: 217 33% 20%; /* Increased border contrast */
+  
+  --primary: 250 89% 65%;
+  --primary-hover: 250 89% 58%;
+  --primary-focus: 250 89% 75%;
+  
+  --secondary: 215 28% 18%;
+  --secondary-hover: 215 28% 25%;
+  
+  --success: 142 76% 45%;
+  --success-hover: 142 76% 38%;
+  
+  --accent: 199 89% 48%;
+  --accent-glow: rgba(14, 165, 233, 0.2);
+}
+
+/* Force dark background styling to eliminate gray light-mode bleed */
+html, body {
+  background-color: #060913 !important;
+  color: #f1f5f9 !important;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  background-image: 
+    radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 90%, rgba(14, 165, 233, 0.08) 0%, transparent 40%) !important;
+  background-attachment: fixed !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: -0.02em;
+  color: #ffffff !important; /* Ensure headers are always white */
+}
+
+/* Glassmorphic panels with higher background opacity and borders for contrast */
+.glass-panel {
+  background: rgba(11, 17, 32, 0.85) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12) !important; /* High contrast borders */
+  box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.55);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel-hover:hover {
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  box-shadow: 0 16px 52px 0 rgba(0, 0, 0, 0.7);
+  transform: translateY(-2px);
+}
+
+/* High contrast inputs */
+.glass-input {
+  background: rgba(15, 23, 42, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #ffffff !important;
+  border-radius: 0.75rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-input:focus {
+  outline: none;
+  background: rgba(21, 32, 58, 0.9) !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 14px 3px rgba(99, 102, 241, 0.35);
+}
+
+.glass-input::placeholder {
+  color: #64748b !important; /* Muted slate placeholder */
+}
+
+/* Glass cards for list items */
+.glass-card {
+  background: rgba(18, 26, 47, 0.75) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  background: rgba(23, 33, 59, 0.9) !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Buttons with bright contrast */
+.btn-primary {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  border-radius: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px 0 rgba(99, 102, 241, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px 0 rgba(99, 102, 241, 0.6), 0 0 0 2px rgba(99, 102, 241, 0.3);
+}
+
+.btn-primary:disabled {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.05) !important;
+  color: #475569 !important;
+  box-shadow: none;
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  border-radius: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px 0 rgba(16, 185, 129, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-success:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px 0 rgba(16, 185, 129, 0.6), 0 0 0 2px rgba(16, 185, 129, 0.3);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important; /* Higher contrast border */
+  color: #f1f5f9 !important;
+  font-weight: 700;
+  border-radius: 0.75rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Contrast labels and descriptive text colors */
+.text-slate-400 {
+  color: #94a3b8 !important; /* Brighter slate for descriptions */
+}
+
+.text-slate-500 {
+  color: #cbd5e1 !important; /* Increased grey text contrast to light grey instead of dark grey */
+}
+
+/* Custom Scrollbar for high visibility */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #060913;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+  border: 2px solid #060913;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* Glowing text modifications */
+.glow-text-primary {
+  text-shadow: 0 0 10px rgba(99, 102, 241, 0.7);
+}
+
+.glow-text-success {
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.7);
+}
