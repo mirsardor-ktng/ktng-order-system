@@ -184,7 +184,8 @@ export class OrdersService {
       fileUploadMsg = uploadResult.message;
     }
 
-    const savedOrder = await prisma.$transaction(async (tx) => {
+    const savedOrder = await prisma.$transaction(
+      async (tx) => {
       if (orderStatus === 'NEW') {
         // Decrement stock per individual SKU (supporting multi-SKU groups)
         for (const [, allocs] of itemAllocations) {
@@ -284,7 +285,11 @@ export class OrdersService {
       }
 
       return order;
-    });
+    },
+    {
+      timeout: 15000
+    }
+    );
 
     const diff = AuditService.formatItemsDiff([], promoResult.items.map(i => ({ name: i.name, quantity: i.totalQuantityPacks })));
     await AuditService.log({
