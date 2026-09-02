@@ -3,6 +3,8 @@ import { auth } from '@googleapis/drive';
 import { getSession } from '@/lib/auth';
 import prisma from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     const session = getSession(req);
