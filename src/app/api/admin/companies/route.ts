@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session || (session.role !== 'ADMIN' && session.role !== 'SELLER' && session.role !== 'MANAGER')) {
-      return NextResponse.json({ error: 'Доступ запрещен.' }, { status: 403 });
-    }
+    requirePermission(req, ['companies:read', 'companies:manage', 'orders:view_all']);
 
     const companies = await prisma.company.findMany({
       include: {
@@ -23,16 +20,13 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(companies);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 403 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ разрешен только администраторам.' }, { status: 403 });
-    }
+    const session = requirePermission(req, 'companies:manage');
 
     const { name, inn, purchasePlanCases, monthlyTargetCases } = await req.json();
 
@@ -65,7 +59,7 @@ export async function POST(req: NextRequest) {
     await AuditService.log({
       userId: session.userId,
       action: 'CREATE_COMPANY',
-      details: `Администратор создал компанию "${company.name}" (код: ${company.code})`,
+      details: `Пользователь ${session.email} создал компанию "${company.name}" (код: ${company.code})`,
       req
     });
 

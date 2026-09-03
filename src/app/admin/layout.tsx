@@ -5,25 +5,49 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { 
   LayoutDashboard, Users, ShoppingBag, FolderSymlink, MapPin, FileClock, 
-  Settings, LogOut, User, Loader2, Sparkles, Tag, Menu, X, ChevronRight, Shield, FileUp, Building2, BarChart3, Percent, Layers3
+  Settings, LogOut, User, Loader2, Sparkles, Tag, Menu, X, ChevronRight, Shield, FileUp, Building2, BarChart3, Percent, Layers3, KeyRound
 } from 'lucide-react';
+
+interface AuthUser {
+  name: string;
+  email: string;
+  role?: string;
+  roleName?: string;
+  permissions?: string[];
+  defaultDashboard?: string;
+}
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     async function verifyAdmin() {
       try {
-        const res = await fetch('/api/auth/me');
+        const res = await fetch('/api/auth/me', { cache: 'no-store' });
         const data = await res.json();
         
-        if (data.authenticated && data.user.role === 'ADMIN') {
-          setUser(data.user);
-          setLoading(false);
+        if (data.authenticated && data.user) {
+          const userPerms = data.user.permissions || [];
+          const isSuper = data.user.role === 'ADMIN' || data.user.roleName === 'Суперадминистратор' || userPerms.includes('*');
+          
+          // Check if user has at least some admin-accessible permissions
+          const hasAdminAccess = isSuper || userPerms.some((p: string) => [
+            'users:read', 'users:manage', 'roles:manage', 'companies:read', 'companies:manage',
+            'products:read', 'products:manage', 'products:stock_update', 'product_groups:manage',
+            'tags:manage', 'promotions:read', 'promotions:manage', 'analytics:view',
+            'templates:manage', 'placeholders:manage', 'import:execute', 'logs:view', 'settings:manage'
+          ].includes(p));
+
+          if (hasAdminAccess) {
+            setUser(data.user);
+            setLoading(false);
+          } else {
+            router.replace(data.user.defaultDashboard || '/customer');
+          }
         } else {
           router.replace('/login');
         }
@@ -41,12 +65,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const handleLogout = async () => {
     try {
-      const res = await fetch('/api/auth/logout', { method: 'POST' });
-      if (res.ok) {
-        router.replace('/login');
-      }
+      await fetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.error('Logout failed', err);
+    } finally {
+      window.location.href = '/login';
     }
   };
 
@@ -59,22 +82,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  // Sidebar navigation menu
-  const menuItems = [
-    { name: 'Обзор', path: '/admin', icon: LayoutDashboard },
-    { name: 'Аналитика', path: '/analytics', icon: BarChart3 },
-    { name: 'Пользователи', path: '/admin/users', icon: Users },
-    { name: 'Компании', path: '/admin/companies', icon: Building2 },
-    { name: 'Акции & Скидки', path: '/admin/promotions', icon: Percent },
-    { name: 'Группы товаров', path: '/admin/product-groups', icon: Layers3 },
-    { name: 'Каталог SKU', path: '/admin/products', icon: ShoppingBag },
-    { name: 'Теги', path: '/admin/tags', icon: Tag },
-    { name: 'Шаблоны Excel', path: '/admin/templates', icon: FolderSymlink },
-    { name: 'Маппинг полей', path: '/admin/placeholders', icon: MapPin },
-    { name: 'Импорт истории', path: '/admin/import-history', icon: FileUp },
-    { name: 'Логи системы', path: '/admin/logs', icon: FileClock },
-    { name: 'Интеграция GDrive', path: '/admin/settings', icon: Settings }
+  const isSuper = user?.role === 'ADMIN' || user?.roleName === 'Суперадминистратор' || (user?.permissions || []).includes('*');
+  const userPerms = user?.permissions || [];
+
+  const checkPerm = (required: string | string[]) => {
+    if (isSuper) return true;
+    if (Array.isArray(required)) {
+      return required.some(r => userPerms.includes(r));
+    }
+    return userPerms.includes(required);
+  };
+
+  // Sidebar navigation menu with permission bindings
+  const allMenuItems = [
+    { name: 'Обзор', path: '/admin', icon: LayoutDashboard, required: [] },
+    { name: 'Аналитика', path: '/analytics', icon: BarChart3, required: ['analytics:view'] },
+    { name: 'Пользователи', path: '/admin/users', icon: Users, required: ['users:read', 'users:manage'] },
+    { name: 'Шаблоны ролей', path: '/admin/roles', icon: KeyRound, required: ['roles:manage', 'users:manage'] },
+    { name: 'Компании', path: '/admin/companies', icon: Building2, required: ['companies:read', 'companies:manage'] },
+    { name: 'Акции & Скидки', path: '/admin/promotions', icon: Percent, required: ['promotions:read', 'promotions:manage'] },
+    { name: 'Группы товаров', path: '/admin/product-groups', icon: Layers3, required: ['product_groups:manage', 'products:manage'] },
+    { name: 'Каталог SKU', path: '/admin/products', icon: ShoppingBag, required: ['products:read', 'products:manage', 'products:stock_update'] },
+    { name: 'Теги', path: '/admin/tags', icon: Tag, required: ['tags:manage', 'products:manage'] },
+    { name: 'Шаблоны Excel', path: '/admin/templates', icon: FolderSymlink, required: ['templates:manage'] },
+    { name: 'Маппинг полей', path: '/admin/placeholders', icon: MapPin, required: ['placeholders:manage'] },
+    { name: 'Импорт истории', path: '/admin/import-history', icon: FileUp, required: ['import:execute'] },
+    { name: 'Логи системы', path: '/admin/logs', icon: FileClock, required: ['logs:view'] },
+    { name: 'Интеграция GDrive', path: '/admin/settings', icon: Settings, required: ['settings:manage'] }
   ];
+
+  const visibleMenuItems = allMenuItems.filter(item => {
+    if (item.required.length === 0) return true;
+    return checkPerm(item.required);
+  });
+
+  const canSwitchToSeller = checkPerm(['orders:create', 'orders:view_all', 'orders:edit']);
 
   const SidebarContent = () => (
     <>
@@ -85,7 +127,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
         <div>
           <span className="font-bold tracking-tight text-sm flex items-center gap-1">
-            ADMIN CORE <span className="text-[10px] text-primary-focus">v1.0</span>
+            ADMIN CORE <span className="text-[10px] text-primary-focus">v2.0</span>
           </span>
           <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none">B2B Order Control</span>
         </div>
@@ -93,7 +135,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* Navigation list */}
       <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-        {menuItems.map((item) => {
+        {visibleMenuItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.path;
 
@@ -127,18 +169,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </Link>
           <div className="flex-1 min-w-0">
             <span className="block text-xs font-bold text-slate-200 truncate">{user?.name}</span>
-            <span className="block text-[8px] text-slate-500 uppercase tracking-widest font-extrabold leading-none mt-1">Superadmin</span>
+            <span className="block text-[8px] text-slate-500 uppercase tracking-widest font-extrabold leading-none mt-1 truncate">
+              {user?.roleName || 'Суперадминистратор'}
+            </span>
           </div>
         </div>
         
         <div className="grid grid-cols-2 gap-2">
-          <Link 
-            href="/seller" 
-            className="flex items-center justify-center rounded-lg border border-cyan-500/25 bg-cyan-500/10 py-1.5 text-[9px] font-bold text-cyan-400 hover:bg-cyan-500/20 transition-all"
-            title="Перейти в консоль продаж"
-          >
-            Консоль продаж
-          </Link>
+          {canSwitchToSeller ? (
+            <Link 
+              href="/seller" 
+              className="flex items-center justify-center rounded-lg border border-cyan-500/25 bg-cyan-500/10 py-1.5 text-[9px] font-bold text-cyan-400 hover:bg-cyan-500/20 transition-all"
+              title="Перейти в консоль продаж"
+            >
+              Консоль продаж
+            </Link>
+          ) : (
+            <div className="flex items-center justify-center rounded-lg border border-white/5 bg-white/[0.02] py-1.5 text-[9px] font-bold text-slate-500">
+              Admin
+            </div>
+          )}
           <button
             onClick={handleLogout}
             className="flex items-center justify-center gap-1 rounded-lg bg-red-500/10 border border-red-500/20 py-1.5 text-[9px] font-bold text-red-400 hover:bg-red-500/20 transition-all"
@@ -152,12 +202,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   );
 
   return (
-    /* 
-      KEY FIX: h-screen overflow-hidden on the outer shell.
-      The sidebar and the content column are both flex children.
-      The content column gets overflow-y-auto so only IT scrolls.
-      The sidebar stays pinned at full viewport height.
-    */
     <div className="relative h-screen overflow-hidden bg-background text-foreground flex">
       {/* Dynamic Glow behind sidebar */}
       <div className="pointer-events-none absolute top-0 left-0 h-[600px] w-[300px] rounded-full bg-indigo-500/5 blur-[120px] z-0" />
@@ -176,7 +220,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Drawer close button */}
         <button
           onClick={() => setDrawerOpen(false)}
           className="absolute top-4 right-4 h-8 w-8 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white transition-all"
@@ -193,11 +236,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* ── RIGHT: Header + Scrollable Content ── */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-
         {/* ── STICKY TOP HEADER (mobile) ── */}
         <header className="flex-shrink-0 z-30 w-full border-b border-white/5 bg-background/70 backdrop-blur-md lg:hidden px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Hamburger */}
             <button
               onClick={() => setDrawerOpen(true)}
               className="h-8 w-8 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white transition-all"
@@ -212,12 +253,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           <div className="flex gap-2">
-            <Link 
-              href="/seller"
-              className="px-2.5 py-1 text-[9px] font-bold rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
-            >
-              Продажи
-            </Link>
+            {canSwitchToSeller && (
+              <Link 
+                href="/seller"
+                className="px-2.5 py-1 text-[9px] font-bold rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
+              >
+                Продажи
+              </Link>
+            )}
             <button 
               onClick={handleLogout}
               className="h-7 w-7 rounded bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center"
@@ -229,7 +272,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Mobile horizontal sub-nav */}
         <nav className="flex-shrink-0 flex lg:hidden bg-slate-950/80 border-b border-white/5 py-2 px-4 gap-1.5 overflow-x-auto select-none z-20">
-          {menuItems.map((item) => {
+          {visibleMenuItems.map((item) => {
             const isActive = pathname === item.path;
             return (
               <Link

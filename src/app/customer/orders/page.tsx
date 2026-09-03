@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
+import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 
 interface CommentItem {
   id: string;
@@ -173,7 +174,10 @@ function CustomerOrdersContent() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3 justify-between">
+      {/* ── CUSTOMER KPI DASHBOARD ── */}
+      <CustomerKpiDashboard orders={orders} />
+
+      <div className="flex items-center gap-3 justify-between pt-2">
         <div className="flex items-center gap-3">
           <History className="h-6 w-6 text-primary" />
           <h2 className="text-xl font-bold text-slate-100">

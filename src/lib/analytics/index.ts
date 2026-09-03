@@ -1,4 +1,5 @@
 import prisma from '../db';
+import { hasPermission } from '../auth';
 import { calculateSummary } from './summary';
 import { calculateMonthlyTrend } from './monthly';
 import { calculateProductAnalytics } from './products';
@@ -9,22 +10,29 @@ export interface JWTPayload {
   userId: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'SELLER' | 'CUSTOMER' | 'MANAGER';
+  role?: string;
+  roleName?: string;
+  permissions?: string[];
+  companyId?: string | null;
 }
 
 const VALID_STATUSES = ['NEW', 'ASSEMBLY', 'SHIPPED', 'COMPLETED'];
 
 export class AnalyticsService {
-  static async getAnalyticsData(session: JWTPayload, selectedMonthKey?: string | null) {
-    const isCustomer = session.role === 'CUSTOMER';
+  static async getAnalyticsData(session: any, selectedMonthKey?: string | null) {
+    const isStaff = hasPermission(session, 'orders:view_all');
 
-    if (isCustomer) {
-      // 1. Fetch current customer orders
+    if (!isStaff) {
+      // 1. Fetch current customer company orders
+      const whereClause: any = { status: { in: VALID_STATUSES } };
+      if (session.companyId) {
+        whereClause.companyId = session.companyId;
+      } else {
+        whereClause.customerId = session.userId;
+      }
+
       const customerOrders = await prisma.order.findMany({
-        where: {
-          customerId: session.userId,
-          status: { in: VALID_STATUSES }
-        },
+        where: whereClause,
         include: {
           items: { include: { product: true } }
         },

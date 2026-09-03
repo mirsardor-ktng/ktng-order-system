@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = getSession(req);
-    if (!session || (session.role !== 'ADMIN' && session.role !== 'SELLER' && session.role !== 'MANAGER')) {
-      return NextResponse.json({ error: 'Доступ запрещен.' }, { status: 403 });
-    }
+    requirePermission(req, ['promotions:read', 'promotions:manage']);
 
     const { id } = params;
     const promotion = await prisma.promotion.findUnique({
@@ -34,10 +31,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ разрешен только администраторам.' }, { status: 403 });
-    }
+    const session = requirePermission(req, 'promotions:manage');
 
     const { id } = params;
     const body = await req.json();
@@ -60,64 +54,60 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       isActive
     } = body;
 
-    const existing = await prisma.promotion.findUnique({
-      where: { id },
-      include: { companies: { select: { id: true } } }
+    const existingPromotion = await prisma.promotion.findUnique({
+      where: { id }
     });
 
-    if (!existing) {
+    if (!existingPromotion) {
       return NextResponse.json({ error: 'Акция не найдена.' }, { status: 404 });
     }
 
-    if (name !== undefined && (!name || !name.trim())) {
-      return NextResponse.json({ error: 'Название акции обязательно.' }, { status: 400 });
+    const data: any = {};
+    if (name !== undefined) data.name = name.trim();
+    if (type !== undefined) data.type = type;
+    if (isActive !== undefined) data.isActive = !!isActive;
+    if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
+    if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
+    if (applyToAllCompanies !== undefined) data.applyToAllCompanies = !!applyToAllCompanies;
+
+    if (type === 'SKU_BONUS' || (!type && existingPromotion.type === 'SKU_BONUS')) {
+      if (bonusMode !== undefined) data.bonusMode = bonusMode;
+      if (minimumBlocks !== undefined) data.minimumBlocks = parseInt(minimumBlocks);
+      if (bonusBlocks !== undefined) data.bonusBlocks = parseInt(bonusBlocks);
+      if (sourceProductId !== undefined) data.sourceProductId = sourceProductId;
+      if (bonusProductId !== undefined) data.bonusProductId = bonusProductId || null;
+    } else if (type === 'ORDER_PERCENTAGE' || (!type && existingPromotion.type === 'ORDER_PERCENTAGE')) {
+      if (discountPercent !== undefined) data.discountPercent = parseFloat(discountPercent);
+    } else if (type === 'ORDER_FIXED_AMOUNT' || (!type && existingPromotion.type === 'ORDER_FIXED_AMOUNT')) {
+      if (allocatedAmount !== undefined) data.allocatedAmount = parseFloat(allocatedAmount);
+      if (remainingAmount !== undefined) data.remainingAmount = parseFloat(remainingAmount);
+      if (maxOrderUsagePercent !== undefined) data.maxOrderUsagePercent = parseFloat(maxOrderUsagePercent);
     }
 
-    // Build update data
-    const updateData: any = {};
-    if (name !== undefined) updateData.name = name.trim();
-    if (type !== undefined) updateData.type = type;
-    if (bonusMode !== undefined) updateData.bonusMode = bonusMode;
-    if (minimumBlocks !== undefined) updateData.minimumBlocks = parseInt(minimumBlocks);
-    if (bonusBlocks !== undefined) updateData.bonusBlocks = parseInt(bonusBlocks);
-    if (sourceProductId !== undefined) updateData.sourceProductId = sourceProductId;
-    if (bonusProductId !== undefined) updateData.bonusProductId = bonusMode === 'ANOTHER_SKU' ? bonusProductId : null;
-    if (discountPercent !== undefined) updateData.discountPercent = discountPercent !== null ? parseFloat(discountPercent) : null;
-    if (allocatedAmount !== undefined) updateData.allocatedAmount = allocatedAmount !== null ? parseFloat(allocatedAmount) : null;
-    if (remainingAmount !== undefined) updateData.remainingAmount = remainingAmount !== null ? parseFloat(remainingAmount) : null;
-    if (maxOrderUsagePercent !== undefined) updateData.maxOrderUsagePercent = maxOrderUsagePercent !== null ? parseFloat(maxOrderUsagePercent) : 10.0;
-    if (applyToAllCompanies !== undefined) updateData.applyToAllCompanies = applyToAllCompanies;
-    if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
-    if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
-    if (isActive !== undefined) updateData.isActive = isActive;
-
-    // Handle company assignments
-    if (companyIds !== undefined) {
-      // Disconnect all existing, then connect new ones
-      updateData.companies = {
-        set: [], // disconnect all
-        connect: companyIds.map((cid: string) => ({ id: cid }))
+    if (companyIds !== undefined && Array.isArray(companyIds)) {
+      data.companies = {
+        set: companyIds.map((cid: string) => ({ id: cid }))
       };
     }
 
-    const updated = await prisma.promotion.update({
+    const updatedPromotion = await prisma.promotion.update({
       where: { id },
-      data: updateData,
+      data,
       include: {
-        sourceProduct: { select: { id: true, sku: true, name: true, basePrice: true, imageUrl: true } },
-        bonusProduct: { select: { id: true, sku: true, name: true, basePrice: true, imageUrl: true } },
-        companies: { select: { id: true, name: true, code: true } }
+        sourceProduct: true,
+        bonusProduct: true,
+        companies: true
       }
     });
 
     await AuditService.log({
       userId: session.userId,
       action: 'UPDATE_PROMOTION',
-      details: `Администратор изменил акцию "${updated.name}"`,
+      details: `Пользователь ${session.email} обновил акцию "${updatedPromotion.name}"`,
       req
     });
 
-    return NextResponse.json({ success: true, promotion: updated });
+    return NextResponse.json({ success: true, promotion: updatedPromotion });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -125,24 +115,25 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ разрешен только администраторам.' }, { status: 403 });
-    }
+    const session = requirePermission(req, 'promotions:manage');
 
     const { id } = params;
-    const promotion = await prisma.promotion.findUnique({ where: { id } });
+    const promotion = await prisma.promotion.findUnique({
+      where: { id }
+    });
 
     if (!promotion) {
       return NextResponse.json({ error: 'Акция не найдена.' }, { status: 404 });
     }
 
-    await prisma.promotion.delete({ where: { id } });
+    await prisma.promotion.delete({
+      where: { id }
+    });
 
     await AuditService.log({
       userId: session.userId,
       action: 'DELETE_PROMOTION',
-      details: `Администратор удалил акцию "${promotion.name}"`,
+      details: `Пользователь ${session.email} удалил акцию "${promotion.name}"`,
       req
     });
 

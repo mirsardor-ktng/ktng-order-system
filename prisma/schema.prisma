@@ -1,10 +1,10 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
 }
 
 model User {
@@ -12,55 +12,75 @@ model User {
   email          String        @unique
   passwordHash   String
   name           String
-  role           String?
+  role           String?       // Deprecated / legacy fallback ("ADMIN", "SELLER", "CUSTOMER")
+  roleTemplateId String?
+  roleTemplate   RoleTemplate? @relation(fields: [roleTemplateId], references: [id])
+  companyId      String?
+  company        Company?      @relation(fields: [companyId], references: [id])
+  isActive       Boolean       @default(true)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
-  companyId      String?
-  isActive       Boolean       @default(true)
-  roleTemplateId String?
-  auditLogs      AuditLog[]
-  comments       Comment[]
-  ordersCreated  Order[]       @relation("OrderCreator")
   orders         Order[]       @relation("CustomerOrders")
-  company        Company?      @relation(fields: [companyId], references: [id])
-  RoleTemplate   RoleTemplate? @relation(fields: [roleTemplateId], references: [id])
+  ordersCreated  Order[]       @relation("OrderCreator")
+  comments       Comment[]
+  auditLogs      AuditLog[]
 }
 
+model RoleTemplate {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  description      String?
+  isSystem         Boolean  @default(false)
+  defaultDashboard String   @default("/admin") // "/admin" | "/seller" | "/customer" | "/analytics"
+  permissions      String[] // Array of permission codes, e.g. ["users:read", "orders:create"]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  users            User[]
+}
+
+// ─────────────────────────────────────────────
+// ProductGroup — логический товар (то, что видит покупатель)
+// ─────────────────────────────────────────────
 model ProductGroup {
-  id               String      @id @default(cuid())
-  displayName      String
-  isActive         Boolean     @default(true)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  skus             Product[]
+  id          String    @id @default(cuid())
+  displayName String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  skus        Product[]
+  // Promotions linked to this group (optional — for group-level promo calculation)
   sourcePromotions Promotion[] @relation("SourceGroupPromotions")
 }
 
+// ─────────────────────────────────────────────
+// Product — складской SKU
+// ─────────────────────────────────────────────
 model Product {
-  id               String         @id @default(cuid())
-  sku              String         @unique
+  id               String        @id @default(cuid())
+  sku              String        @unique
   name             String
   imageUrl         String
-  basePrice        Float
-  stockPacks       Int            @default(5000)
-  isActive         Boolean        @default(true)
-  isFavorite       Boolean        @default(false)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  basePrice        Float         // Price per single pack (10 packs = 1 block, 500 packs = 1 case)
+  stockPacks       Int           @default(5000)
+  isActive         Boolean       @default(true)
+  isFavorite       Boolean       @default(false)
+  // ProductGroup association
   groupId          String?
-  priority         Int            @default(0)
+  group            ProductGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  priority         Int           @default(0)  // Lower = consumed first
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
   orderItems       OrderItem[]
   skuAllocations   OrderItemSku[]
-  group            ProductGroup?  @relation(fields: [groupId], references: [id])
-  bonusPromotions  Promotion[]    @relation("BonusProductPromotions")
-  sourcePromotions Promotion[]    @relation("SourceProductPromotions")
-  tags             Tag[]          @relation("ProductTags")
+  tags             Tag[]         @relation("ProductTags")
+  sourcePromotions Promotion[]   @relation("SourceProductPromotions")
+  bonusPromotions  Promotion[]   @relation("BonusProductPromotions")
 }
 
 model Tag {
   id        String    @id @default(cuid())
   name      String    @unique
-  color     String    @default("#6366f1")
+  color     String    @default("#6366f1") // hex color for badge
   createdAt DateTime  @default(now())
   products  Product[] @relation("ProductTags")
 }
@@ -69,87 +89,103 @@ model Order {
   id              String      @id @default(cuid())
   orderNumber     String      @unique
   customerId      String
-  status          String
+  customer        User        @relation("CustomerOrders", fields: [customerId], references: [id], onDelete: Cascade)
+  companyId       String?
+  company         Company?    @relation(fields: [companyId], references: [id])
+  createdByUserId String?
+  createdBy       User?       @relation("OrderCreator", fields: [createdByUserId], references: [id])
+  status          String      // "DRAFT", "SENT", "COMPLETED", "CANCELLED"
   totalPacks      Int
   totalBlocks     Int
   totalCases      Float
   totalPrice      Float
-  fileUrl         String?
+  fileUrl         String?     // Path to generated Excel file or Google Drive URL
+  fileId          String?
+  fileName        String?
+  source          OrderSource @default(MANUAL)
+  isHistorical    Boolean     @default(false)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
-  isHistorical    Boolean     @default(false)
-  source          OrderSource @default(MANUAL)
-  fileId          String?
-  companyId       String?
-  createdByUserId String?
-  fileName        String?
-  comments        Comment[]
-  company         Company?    @relation(fields: [companyId], references: [id])
-  createdBy       User?       @relation("OrderCreator", fields: [createdByUserId], references: [id])
-  customer        User        @relation("CustomerOrders", fields: [customerId], references: [id], onDelete: Cascade)
   items           OrderItem[]
+  comments        Comment[]
 }
 
 model OrderItem {
-  id                  String         @id @default(cuid())
+  id                  String   @id @default(cuid())
   orderId             String
+  order               Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId           String
-  quantityPacks       Int            @default(0)
-  quantityBlocks      Int            @default(0)
-  quantityCases       Float          @default(0)
-  price               Float
-  createdAt           DateTime       @default(now())
-  itemTotalPrice      Float?
-  productNameSnapshot String?
-  skuSnapshot         String?
-  bonusQuantityPacks  Int            @default(0)
-  effectivePrice      Float?
-  isBonus             Boolean        @default(false)
-  promotionNote       String?
-  baseQuantityBlocks  Int            @default(0)
-  baseQuantityCases   Float          @default(0)
-  baseQuantityPacks   Int            @default(0)
-  bonusQuantityBlocks Int            @default(0)
-  bonusQuantityCases  Float          @default(0)
-  promotionDiscount   Float?
-  promotionId         String?
-  totalQuantityBlocks Int            @default(0)
-  totalQuantityCases  Float          @default(0)
-  totalQuantityPacks  Int            @default(0)
-  groupDisplayName    String?
-  groupId             String?
-  order               Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product             Product        @relation(fields: [productId], references: [id])
+  product             Product  @relation(fields: [productId], references: [id])
+  productNameSnapshot String?  // Historical name snapshot (for single-SKU items)
+  skuSnapshot         String?  // Historical SKU snapshot
+
+  // Group-level snapshot (for logical product display)
+  groupId             String?  // ID of the ProductGroup at time of order
+  groupDisplayName    String?  // Snapshot of the logical product name shown to customer
+
+  // Base quantity (entered by user)
+  baseQuantityPacks   Int      @default(0)
+  baseQuantityBlocks  Int      @default(0)
+  baseQuantityCases   Float    @default(0)
+
+  // Bonus quantity (awarded by promotion)
+  bonusQuantityPacks  Int      @default(0)
+  bonusQuantityBlocks Int      @default(0)
+  bonusQuantityCases  Float    @default(0)
+
+  // Total quantity (base + bonus)
+  totalQuantityPacks  Int      @default(0)
+  totalQuantityBlocks Int      @default(0)
+  totalQuantityCases  Float    @default(0)
+
+  // Backward compatibility fields
+  quantityPacks       Int      @default(0)
+  quantityBlocks      Int      @default(0)
+  quantityCases       Float    @default(0)
+
+  price               Float    // Snapshot of pack price at time of order
+  effectivePrice      Float?   // Effective unit price after promotion redistribution
+  itemTotalPrice      Float?   // Historical total price snapshot
+  promotionDiscount   Float?   // Total discount amount on item
+  isBonus             Boolean  @default(false)
+  promotionId         String?  // Associated promotion ID if applicable
+  promotionNote       String?  // Description of promotion applied (e.g. "Бонус по акции")
+  createdAt           DateTime @default(now())
+
+  // Per-SKU stock allocation (for multi-SKU groups)
   skuAllocations      OrderItemSku[]
 }
 
+// ─────────────────────────────────────────────
+// OrderItemSku — складское распределение пачек по SKU
+// ─────────────────────────────────────────────
 model OrderItemSku {
   id          String    @id @default(cuid())
   orderItemId String
-  productId   String
-  packs       Int
-  sku         String
-  name        String
   orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  productId   String
   product     Product   @relation(fields: [productId], references: [id])
+  packs       Int       // количество пачек, списанных с этого SKU
+  sku         String    // SKU snapshot
+  name        String    // Product name snapshot
 }
 
 model Template {
   id         String   @id @default(cuid())
   name       String
-  fileId     String?
+  fileId     String?  // Google Drive File ID
   isActive   Boolean  @default(false)
   uploadDate DateTime @default(now())
   version    String   @default("1.0.0")
   isLocal    Boolean  @default(true)
-  filePath   String?
-  outputMode String   @default("COMMERCIAL")
+  filePath   String?  // If stored locally on disk
+  outputMode String   @default("COMMERCIAL") // "COMMERCIAL" | "INVENTORY"
 }
 
 model PlaceholderMapping {
   id          String   @id @default(cuid())
-  placeholder String   @unique
-  systemField String
+  placeholder String   @unique // e.g. "{CLIENT_NAME}"
+  systemField String   // e.g. "customer.name"
   description String
   createdAt   DateTime @default(now())
 }
@@ -157,14 +193,14 @@ model PlaceholderMapping {
 model AuditLog {
   id        String   @id @default(cuid())
   userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   action    String
   details   String
+  oldValue  String?  // Previous state
+  newValue  String?  // Current state
+  ipAddress String?  // Client IP address
+  userAgent String?  // Client browser user agent
   timestamp DateTime @default(now())
-  ipAddress String?
-  newValue  String?
-  oldValue  String?
-  userAgent String?
-  user      User?    @relation(fields: [userId], references: [id])
 }
 
 model SystemSetting {
@@ -177,65 +213,12 @@ model SystemSetting {
 model Comment {
   id        String   @id @default(cuid())
   orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   userId    String?
-  userName  String
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName  String   // Cache name at time of commenting
   text      String
   createdAt DateTime @default(now())
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  user      User?    @relation(fields: [userId], references: [id])
-}
-
-model Company {
-  id                 String      @id @default(cuid())
-  name               String
-  code               String      @unique
-  inn                String?
-  purchasePlanCases  Float       @default(0)
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  monthlyTargetCases Float?      @default(0)
-  orders             Order[]
-  users              User[]
-  promotions         Promotion[] @relation("CompanyPromotions")
-}
-
-model Promotion {
-  id                   String        @id @default(cuid())
-  name                 String
-  isActive             Boolean       @default(true)
-  startDate            DateTime?
-  endDate              DateTime?
-  applyToAllCompanies  Boolean       @default(true)
-  bonusMode            BonusMode     @default(SAME_SKU)
-  minimumBlocks        Int           @default(50)
-  bonusBlocks          Int           @default(5)
-  sourceProductId      String?
-  bonusProductId       String?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  allocatedAmount      Float?
-  consumedAmount       Float?        @default(0.0)
-  discountPercent      Float?
-  maxOrderUsagePercent Float?        @default(10.0)
-  remainingAmount      Float?
-  sourceGroupId        String?
-  type                 PromotionType @default(SKU_BONUS)
-  bonusProduct         Product?      @relation("BonusProductPromotions", fields: [bonusProductId], references: [id])
-  sourceGroup          ProductGroup? @relation("SourceGroupPromotions", fields: [sourceGroupId], references: [id])
-  sourceProduct        Product?      @relation("SourceProductPromotions", fields: [sourceProductId], references: [id], onDelete: Cascade)
-  companies            Company[]     @relation("CompanyPromotions")
-}
-
-model RoleTemplate {
-  id               String   @id
-  name             String   @unique
-  description      String?
-  isSystem         Boolean  @default(false)
-  defaultDashboard String   @default("/admin")
-  permissions      String[]
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime
-  User             User[]
 }
 
 enum OrderSource {
@@ -253,4 +236,54 @@ enum PromotionType {
 enum BonusMode {
   SAME_SKU
   ANOTHER_SKU
+}
+
+model Company {
+  id                String      @id @default(cuid())
+  name              String
+  code              String      @unique
+  inn               String?
+  purchasePlanCases Float       @default(0)
+  monthlyTargetCases Float?     @default(0)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  users             User[]
+  orders            Order[]
+  promotions        Promotion[] @relation("CompanyPromotions")
+}
+
+model Promotion {
+  id                  String        @id @default(cuid())
+  name                String
+  type                PromotionType @default(SKU_BONUS)
+  isActive            Boolean       @default(true)
+  startDate           DateTime?
+  endDate             DateTime?
+  applyToAllCompanies Boolean       @default(true)
+
+  // Type 1: SKU Bonus specific fields
+  bonusMode           BonusMode     @default(SAME_SKU)
+  minimumBlocks       Int           @default(50)
+  bonusBlocks         Int           @default(5)
+  sourceProductId     String?
+  sourceProduct       Product?      @relation("SourceProductPromotions", fields: [sourceProductId], references: [id], onDelete: Cascade)
+  bonusProductId      String?
+  bonusProduct        Product?      @relation("BonusProductPromotions", fields: [bonusProductId], references: [id], onDelete: SetNull)
+
+  // Group-level promo: applies to the logical product (ProductGroup) instead of a single SKU
+  sourceGroupId       String?
+  sourceGroup         ProductGroup? @relation("SourceGroupPromotions", fields: [sourceGroupId], references: [id], onDelete: SetNull)
+
+  // Type 2: Order Percentage specific fields
+  discountPercent     Float?
+
+  // Type 3: Order Fixed Amount specific fields
+  allocatedAmount     Float?        // Выделенный лимит
+  remainingAmount     Float?        // Остаток лимита
+  maxOrderUsagePercent Float?       @default(10.0) // Максимальный % от суммы заказа (default 10%)
+  consumedAmount      Float?        @default(0.0)  // Использовано всего
+
+  companies           Company[]     @relation("CompanyPromotions")
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 }

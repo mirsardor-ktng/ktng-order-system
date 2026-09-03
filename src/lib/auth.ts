@@ -11,12 +11,16 @@ export interface JWTPayload {
   userId: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'SELLER' | 'CUSTOMER' | 'MANAGER';
+  role?: string; // Legacy fallback
+  roleTemplateId?: string;
+  roleName?: string;
+  permissions?: string[];
+  defaultDashboard?: string;
   companyId?: string;
 }
 
 /**
- * Signs a JWT with the user's profile information.
+ * Signs a JWT with the user's profile and permissions information.
  * Expires in 8 hours (standard B2B shift length).
  */
 export function signToken(payload: JWTPayload): string {
@@ -41,6 +45,43 @@ export function getSession(req: NextRequest): JWTPayload | null {
   const token = req.cookies.get(COOKIE_NAME)?.value;
   if (!token) return null;
   return verifyToken(token);
+}
+
+/**
+ * Checks if a session payload possesses a specific permission (or one of required permissions).
+ * Superadmin (role === 'ADMIN' or possessing all/wildcard permissions) is always granted access.
+ */
+export function hasPermission(payload: JWTPayload | null, required: string | string[]): boolean {
+  if (!payload) return false;
+
+  // Superadmin bypass
+  if (payload.role === 'ADMIN' || payload.roleName === 'Суперадминистратор') {
+    return true;
+  }
+
+  const userPerms = payload.permissions || [];
+  if (userPerms.includes('*')) return true;
+
+  if (Array.isArray(required)) {
+    return required.some(p => userPerms.includes(p));
+  }
+  return userPerms.includes(required);
+}
+
+/**
+ * Helper to enforce permission in API routes. Throws error if unauthorized.
+ */
+export function requirePermission(req: NextRequest, required: string | string[]): JWTPayload {
+  const session = getSession(req);
+  if (!session) {
+    throw new Error('Необходима авторизация.');
+  }
+
+  if (!hasPermission(session, required)) {
+    throw new Error('У вас недостаточно прав для выполнения этого действия.');
+  }
+
+  return session;
 }
 
 /**

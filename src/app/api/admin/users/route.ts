@@ -1,31 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { uploadFile } from '@/lib/gdrive';
 import { encrypt } from '@/lib/security';
 
-// Helper to check for Admin role (RBAC)
-async function requireAdmin(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
-    throw new Error('Access denied');
-  }
-  return session;
-}
+export const dynamic = 'force-dynamic';
 
 /**
- * GET: Lists all system users (Admin only)
+ * GET: Lists all system users with their role template & company
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireAdmin(req);
+    requirePermission(req, ['users:read', 'users:manage']);
+
     const users = await prisma.user.findMany({
       select: {
         id: true,
         email: true,
         name: true,
         role: true,
+        roleTemplateId: true,
+        roleTemplate: {
+          select: {
+            id: true,
+            name: true,
+            isSystem: true,
+            defaultDashboard: true,
+            permissions: true
+          }
+        },
         companyId: true,
         isActive: true,
         company: {
@@ -36,6 +40,7 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: 'desc' }
     });
+
     return NextResponse.json(users);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 403 });
@@ -43,19 +48,19 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST: Registers a new user (Customer or Seller)
+ * POST: Registers a new user with role template
  */
 export async function POST(req: NextRequest) {
   try {
-    const adminSession = await requireAdmin(req);
+    const adminSession = requirePermission(req, 'users:manage');
     const body = await req.json();
-    const { name, email, password, role, companyId } = body;
+    const { name, email, password, roleTemplateId, role, companyId } = body;
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password) {
       return NextResponse.json({ error: 'Не все обязательные поля заполнены.' }, { status: 400 });
     }
 
-    const normalizedEmail = email.toLowerCase();
+    const normalizedEmail = email.toLowerCase().trim();
 
     // Check if user already exists
     const existing = await prisma.user.findUnique({
@@ -66,25 +71,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Пользователь с такой электронной почтой уже зарегистрирован.' }, { status: 400 });
     }
 
+    // Resolve role template
+    let resolvedRoleTemplateId = roleTemplateId;
+    let legacyRole = role || 'CUSTOMER';
+
+    if (resolvedRoleTemplateId) {
+      const template = await prisma.roleTemplate.findUnique({ where: { id: resolvedRoleTemplateId } });
+      if (template) {
+        if (template.name === 'Суперадминистратор') legacyRole = 'ADMIN';
+        else if (template.name === 'Менеджер продаж') legacyRole = 'SELLER';
+        else if (template.name === 'Ограниченный менеджер') legacyRole = 'MANAGER';
+        else legacyRole = 'CUSTOMER';
+      }
+    } else {
+      // Find matching default role template if only legacy role was provided
+      let targetName = 'Клиент B2B (Заказчик)';
+      if (legacyRole === 'ADMIN') targetName = 'Суперадминистратор';
+      else if (legacyRole === 'SELLER') targetName = 'Менеджер продаж';
+      else if (legacyRole === 'MANAGER') targetName = 'Ограниченный менеджер';
+
+      const foundTpl = await prisma.roleTemplate.findUnique({ where: { name: targetName } });
+      if (foundTpl) {
+        resolvedRoleTemplateId = foundTpl.id;
+      }
+    }
+
     // Hash password with bcrypt
     const passwordHash = await bcrypt.hash(password, 10);
 
     const newUser = await prisma.user.create({
       data: {
-        name,
+        name: name.trim(),
         email: normalizedEmail,
         passwordHash,
-        role,
+        role: legacyRole,
+        roleTemplateId: resolvedRoleTemplateId || null,
         companyId: companyId || null
+      },
+      include: {
+        roleTemplate: true,
+        company: true
       }
     });
 
-    let details = `Администратор создал пользователя: ${normalizedEmail} с ролью ${role}`;
-    if (companyId) {
-      const company = await prisma.company.findUnique({ where: { id: companyId } });
-      if (company) {
-        details = `Администратор добавил пользователя ${normalizedEmail} в компанию ${company.name}`;
-      }
+    const roleName = newUser.roleTemplate?.name || newUser.role;
+    let details = `Создан пользователь ${normalizedEmail} с ролью "${roleName}"`;
+    if (companyId && newUser.company) {
+      details += ` в компании ${newUser.company.name}`;
     }
 
     // Write to audit logs
@@ -106,6 +139,8 @@ export async function POST(req: NextRequest) {
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
+        roleTemplateId: newUser.roleTemplateId,
+        roleTemplate: newUser.roleTemplate,
         companyId: newUser.companyId
       }
     });
@@ -119,40 +154,59 @@ export async function POST(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   try {
-    const adminSession = await requireAdmin(req);
+    const adminSession = requirePermission(req, 'users:manage');
     const body = await req.json();
-    const { id, name, email, password, role, companyId, isActive } = body;
+    const { id, name, email, password, roleTemplateId, role, companyId, isActive } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Не указан ID пользователя.' }, { status: 400 });
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { id } });
+    const existingUser = await prisma.user.findUnique({
+      where: { id },
+      include: { roleTemplate: true }
+    });
+
     if (!existingUser) {
-      return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 });
+      return NextResponse.json({ error: 'Пользователь не найден.' }, { status: 404 });
     }
 
     const updateData: any = {};
-    if (name) updateData.name = name;
-    if (email) updateData.email = email.toLowerCase();
-    if (role) updateData.role = role;
+    if (name) updateData.name = name.trim();
+    if (email) updateData.email = email.toLowerCase().trim();
     if (companyId !== undefined) updateData.companyId = companyId || null;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (password) {
       updateData.passwordHash = await bcrypt.hash(password, 10);
     }
 
+    if (roleTemplateId !== undefined) {
+      updateData.roleTemplateId = roleTemplateId || null;
+      if (roleTemplateId) {
+        const tpl = await prisma.roleTemplate.findUnique({ where: { id: roleTemplateId } });
+        if (tpl) {
+          if (tpl.name === 'Суперадминистратор') updateData.role = 'ADMIN';
+          else if (tpl.name === 'Менеджер продаж') updateData.role = 'SELLER';
+          else if (tpl.name === 'Ограниченный менеджер') updateData.role = 'MANAGER';
+          else updateData.role = 'CUSTOMER';
+        }
+      }
+    } else if (role) {
+      updateData.role = role;
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id },
-      data: updateData
+      data: updateData,
+      include: { roleTemplate: true, company: true }
     });
 
     // Audit logs
-    let details = `Администратор обновил данные пользователя: ${updatedUser.email}`;
+    let details = `Обновлены данные пользователя: ${updatedUser.email}`;
     if (isActive !== undefined && existingUser.isActive !== isActive) {
-      details = `Администратор ${isActive ? 'активировал' : 'деактивировал'} пользователя ${updatedUser.email}`;
-    } else if (role && existingUser.role !== role) {
-      details = `Администратор изменил роль пользователя ${updatedUser.email} с ${existingUser.role} на ${role}`;
+      details = `${isActive ? 'Активирован' : 'Деактивирован'} пользователь ${updatedUser.email}`;
+    } else if (roleTemplateId && existingUser.roleTemplateId !== roleTemplateId) {
+      details = `Изменен шаблон роли пользователя ${updatedUser.email} на "${updatedUser.roleTemplate?.name || 'Без роли'}"`;
     }
 
     await prisma.auditLog.create({
@@ -165,7 +219,7 @@ export async function PUT(req: NextRequest) {
 
     await triggerGDriveUsersBackup();
 
-    return NextResponse.json({ success: true, message: 'Профиль пользователя обновлен' });
+    return NextResponse.json({ success: true, message: 'Профиль пользователя обновлен', user: updatedUser });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 403 });
   }
@@ -176,12 +230,12 @@ export async function PUT(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
-    const adminSession = await requireAdmin(req);
+    const adminSession = requirePermission(req, 'users:manage');
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('id');
 
     if (!userId) {
-      return NextResponse.json({ error: 'ID не указан' }, { status: 400 });
+      return NextResponse.json({ error: 'ID не указан.' }, { status: 400 });
     }
 
     // Prevent Admin from deleting themselves
@@ -211,7 +265,7 @@ export async function DELETE(req: NextRequest) {
       data: {
         userId: adminSession.userId,
         action: 'DELETE_USER',
-        details: `Администратор удалил пользователя: ${deletedUser.email}`
+        details: `Удален пользователь: ${deletedUser.email}`
       }
     });
 
@@ -234,6 +288,10 @@ async function triggerGDriveUsersBackup() {
         email: true,
         name: true,
         role: true,
+        roleTemplateId: true,
+        roleTemplate: {
+          select: { name: true }
+        },
         createdAt: true
       }
     });

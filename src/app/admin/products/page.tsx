@@ -62,7 +62,11 @@ export default function AdminProducts() {
   const [bulkSelectedTagIds, setBulkSelectedTagIds] = useState<string[]>([]);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
-  const [userRole, setUserRole] = useState<string>('ADMIN');
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+
+  const canManageProducts = isSuperadmin || permissions.includes('products:manage');
+  const canUpdateStock = isSuperadmin || canManageProducts || permissions.includes('products:stock_update');
 
   // Load product catalog list
   const loadProducts = async () => {
@@ -99,7 +103,11 @@ export default function AdminProducts() {
         const meRes = await fetch('/api/auth/me');
         if (meRes.ok) {
           const meData = await meRes.json();
-          if (meData.user?.role) setUserRole(meData.user.role);
+          if (meData.authenticated && meData.user) {
+            const isSuper = meData.user.role === 'ADMIN' || meData.user.roleName === 'Суперадминистратор' || (meData.user.permissions || []).includes('*');
+            setIsSuperadmin(isSuper);
+            setPermissions(meData.user.permissions || []);
+          }
         }
       } catch (e) {}
       loadProducts();
@@ -179,7 +187,7 @@ export default function AdminProducts() {
     setError('');
     setSuccess('');
 
-    const payload = userRole === 'SELLER'
+    const payload = !canManageProducts && canUpdateStock
       ? { id: activeProduct.id, stockPacks: stockPacks !== '' ? Number(stockPacks) : 0 }
       : { 
           id: activeProduct.id, 
@@ -413,7 +421,7 @@ export default function AdminProducts() {
           </span>
         </div>
 
-        {userRole !== 'SELLER' && (
+        {canManageProducts && (
           <button
             onClick={() => { clearForm(); setShowAddModal(true); }}
             className="btn-primary flex items-center gap-2 px-4 py-2.5 text-xs w-full sm:w-auto flex-shrink-0"
@@ -551,14 +559,16 @@ export default function AdminProducts() {
                       </button>
                     </td>
                       <td className="py-4 px-6 text-right space-x-2">
-                        <button
-                          onClick={() => openEditModal(p)}
-                          className="p-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white transition-all inline-flex"
-                          title={userRole === 'SELLER' ? 'Изменить остаток' : 'Редактировать товар'}
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </button>
-                        {userRole !== 'SELLER' && (
+                        {canUpdateStock && (
+                          <button
+                            onClick={() => openEditModal(p)}
+                            className="p-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white transition-all inline-flex"
+                            title={!canManageProducts ? 'Изменить остаток на складе' : 'Редактировать товар'}
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {canManageProducts && (
                           <button
                             onClick={() => setProductToDelete(p)}
                             className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-all inline-flex"
@@ -910,7 +920,7 @@ export default function AdminProducts() {
             </h3>
 
             <form onSubmit={handleEditProduct} className="space-y-4">
-              {userRole === 'SELLER' ? (
+              {!canManageProducts && canUpdateStock ? (
                 <>
                   <div className="bg-slate-900/60 p-3.5 rounded-xl border border-white/5 space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Товар</span>

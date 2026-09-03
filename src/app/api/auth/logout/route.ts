@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCookieOptions, getSession } from '@/lib/auth';
 import prisma from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * POST: Logs out user by wiping cookie and logging to AuditLog.
  */
@@ -24,10 +26,11 @@ export async function POST(req: NextRequest) {
   const response = NextResponse.json({ success: true, message: 'Сессия закрыта' });
   const cookieOptions = getCookieOptions(0);
   
-  // Set maxAge to 0 to instruct browser to purge cookie immediately
+  // Instruct browser to delete cookie immediately across all paths
   response.cookies.set(cookieOptions.name, '', {
     ...cookieOptions,
-    maxAge: 0
+    maxAge: 0,
+    expires: new Date(0)
   });
 
   return response;

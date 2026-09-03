@@ -1,23 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = getSession(req);
-    if (!session || (session.role !== 'ADMIN' && session.role !== 'SELLER' && session.role !== 'MANAGER')) {
-      return NextResponse.json({ error: 'Доступ запрещен.' }, { status: 403 });
-    }
+    requirePermission(req, ['companies:read', 'companies:manage', 'orders:view_all']);
 
     const { id } = params;
     const company = await prisma.company.findUnique({
       where: { id },
       include: {
         users: {
-          select: { id: true, name: true, email: true, role: true, isActive: true }
+          select: { 
+            id: true, 
+            name: true, 
+            email: true, 
+            role: true, 
+            roleTemplateId: true,
+            roleTemplate: { select: { name: true } },
+            isActive: true 
+          }
         },
         orders: {
           include: {
@@ -42,10 +47,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ разрешен только администраторам.' }, { status: 403 });
-    }
+    const session = requirePermission(req, 'companies:manage');
 
     const { id } = params;
     const { name, inn, purchasePlanCases, monthlyTargetCases } = await req.json();
@@ -75,7 +77,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     await AuditService.log({
       userId: session.userId,
       action: 'UPDATE_COMPANY',
-      details: `Администратор изменил настройки компании "${company.name}" (изм: название, ИНН, план закупок)`,
+      details: `Пользователь ${session.email} изменил настройки компании "${company.name}"`,
       req
     });
 
@@ -87,10 +89,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ разрешен только администраторам.' }, { status: 403 });
-    }
+    const session = requirePermission(req, 'companies:manage');
 
     const { id } = params;
     const company = await prisma.company.findUnique({
@@ -119,7 +118,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     await AuditService.log({
       userId: session.userId,
       action: 'DELETE_COMPANY',
-      details: `Администратор удалил компанию "${company.name}"`,
+      details: `Пользователь ${session.email} удалил компанию "${company.name}"`,
       req
     });
 

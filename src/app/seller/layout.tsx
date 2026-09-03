@@ -3,40 +3,64 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FileSpreadsheet, LogOut, User, Loader2, Leaf } from 'lucide-react';
+import { FileSpreadsheet, LogOut, User, Loader2, Leaf, Shield } from 'lucide-react';
+
+interface AuthUser {
+  name: string;
+  email: string;
+  role?: string;
+  roleName?: string;
+  permissions?: string[];
+  defaultDashboard?: string;
+}
 
 export default function SellerLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
     async function verifySeller() {
       try {
-        const res = await fetch('/api/auth/me');
+        const res = await fetch('/api/auth/me', { cache: 'no-store' });
         const data = await res.json();
         
-        if (data.authenticated && (data.user.role === 'SELLER' || data.user.role === 'ADMIN')) {
-          setUser(data.user);
-          setLoading(false);
+        if (data.authenticated && data.user) {
+          const userPerms = data.user.permissions || [];
+          const isSuper = data.user.role === 'ADMIN' || data.user.roleName === 'Суперадминистратор' || userPerms.includes('*');
+          const hasSellerAccess = isSuper || userPerms.some((p: string) => [
+            'orders:create', 'orders:view_all', 'orders:edit', 'products:stock_update', 'analytics:view'
+          ].includes(p));
+
+          if (hasSellerAccess) {
+            if (isMounted) {
+              setUser(data.user);
+              setLoading(false);
+            }
+          } else {
+            router.replace(data.user.defaultDashboard || '/login');
+          }
         } else {
           router.replace('/login');
         }
       } catch (err) {
         router.replace('/login');
+      } finally {
+        if (isMounted) setLoading(false);
       }
     }
     verifySeller();
+    return () => { isMounted = false; };
   }, [router]);
 
   const handleLogout = async () => {
     try {
-      const res = await fetch('/api/auth/logout', { method: 'POST' });
-      if (res.ok) {
-        router.replace('/login');
-      }
+      await fetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.error('Logout failed', err);
+    } finally {
+      window.location.href = '/login';
     }
   };
 
@@ -49,12 +73,12 @@ export default function SellerLayout({ children }: { children: React.ReactNode }
     );
   }
 
+  const isSuper = user?.role === 'ADMIN' || user?.roleName === 'Суперадминистратор' || (user?.permissions || []).includes('*');
+  const hasAdminAccess = isSuper || (user?.permissions || []).some(p => [
+    'users:read', 'users:manage', 'roles:manage', 'companies:manage', 'products:manage', 'promotions:manage', 'settings:manage'
+  ].includes(p));
+
   return (
-    /*
-      KEY FIX: h-screen overflow-hidden — locks the viewport.
-      Header is flex-shrink-0 (never scrolls away).
-      Main is overflow-y-auto (only this region scrolls).
-    */
     <div className="relative h-screen overflow-hidden bg-background text-foreground flex flex-col">
       {/* Decorative Blur */}
       <div className="pointer-events-none absolute top-0 left-1/4 h-[400px] w-[400px] rounded-full bg-cyan-500/5 blur-[100px]" />
@@ -76,12 +100,13 @@ export default function SellerLayout({ children }: { children: React.ReactNode }
               </div>
             </div>
 
-            {/* Admin toggle (if user is Admin, they can switch) */}
-            {user?.role === 'ADMIN' && (
+            {/* Admin toggle if user has admin access */}
+            {hasAdminAccess && (
               <Link 
                 href="/admin" 
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-3 py-1.5 text-xs font-bold text-indigo-400 hover:bg-indigo-500/20 transition-all"
               >
+                <Shield className="h-3.5 w-3.5" />
                 <span>В консоль админа</span>
               </Link>
             )}
@@ -90,7 +115,9 @@ export default function SellerLayout({ children }: { children: React.ReactNode }
             <div className="flex items-center gap-3">
               <div className="hidden md:flex flex-col text-right">
                 <span className="text-xs font-bold text-slate-200">{user?.name}</span>
-                <span className="text-[10px] text-slate-500 font-semibold tracking-wider">Роль: Менеджер продаж</span>
+                <span className="text-[10px] text-slate-400 font-semibold tracking-wider">
+                  {user?.roleName || 'Менеджер'}
+                </span>
               </div>
               <Link 
                 href="/seller/profile" 

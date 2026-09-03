@@ -14,23 +14,40 @@ export default function Login() {
 
   // Check if session is already active
   useEffect(() => {
+    let isMounted = true;
     async function checkSession() {
       try {
-        const res = await fetch('/api/auth/me');
+        const res = await fetch('/api/auth/me', { cache: 'no-store' });
+        if (!res.ok) {
+          if (isMounted) setCheckingSession(false);
+          return;
+        }
         const data = await res.json();
-        if (data.authenticated) {
-          const role = data.user.role;
-          if (role === 'ADMIN') router.replace('/admin');
-          else if (role === 'SELLER') router.replace('/seller');
-          else router.replace('/customer');
+        if (isMounted && data.authenticated && data.user) {
+          const target = data.user.defaultDashboard || (data.user.role === 'ADMIN' ? '/admin' : data.user.role === 'SELLER' ? '/seller' : '/customer');
+          router.replace(target);
+          return;
         }
       } catch (err) {
         console.error('Session verify failed', err);
       } finally {
-        setCheckingSession(false);
+        if (isMounted) {
+          setCheckingSession(false);
+        }
       }
     }
+    
+    // Safety timeout in case network hangs
+    const timer = setTimeout(() => {
+      if (isMounted) setCheckingSession(false);
+    }, 2500);
+
     checkSession();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -54,11 +71,9 @@ export default function Login() {
       const data = await res.json();
 
       if (res.ok) {
-        // Successful login, redirect based on role
-        const role = data.user.role;
-        if (role === 'ADMIN') router.replace('/admin');
-        else if (role === 'SELLER') router.replace('/seller');
-        else router.replace('/customer');
+        // Successful login, redirect based on user's role template default dashboard
+        const target = data.user.defaultDashboard || (data.user.role === 'ADMIN' ? '/admin' : data.user.role === 'SELLER' ? '/seller' : '/customer');
+        router.replace(target);
       } else {
         setError(data.error || 'Неверные авторизационные данные.');
       }

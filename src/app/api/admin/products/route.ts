@@ -1,33 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermission, hasPermission, getSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
-
-async function requireAdmin(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
-    throw new Error('Access denied');
-  }
-  return session;
-}
-
-async function requireAdminOrSeller(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || (session.role !== 'ADMIN' && session.role !== 'SELLER')) {
-    throw new Error('Access denied');
-  }
-  return session;
-}
 
 /**
  * GET: Returns all products with tags (Admin SKU Manager list or Seller Monitor)
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireAdminOrSeller(req);
+    requirePermission(req, ['products:read', 'products:manage', 'products:stock_update']);
     const products = await prisma.product.findMany({
-      include: { tags: true },
+      include: { tags: true, group: { select: { id: true, displayName: true } } },
       orderBy: { name: 'asc' }
     });
     return NextResponse.json(products);
@@ -43,17 +27,20 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const session = getSession(req);
-    if (!session || (session.role !== 'ADMIN' && session.role !== 'SELLER')) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    if (!session || (!hasPermission(session, 'products:manage') && !hasPermission(session, 'products:stock_update'))) {
+      return NextResponse.json({ error: 'У вас недостаточно прав для изменения товаров.' }, { status: 403 });
     }
+
+    const isFullManager = hasPermission(session, 'products:manage');
+    const isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
 
     const body = await req.json();
     const { id, ids, basePrice, isFavorite, isActive, name, sku, stockPacks, tagIds } = body;
 
-    // If SELLER, ensure only stockPacks is modified
-    if (session.role === 'SELLER') {
+    // If stock only, ensure only stockPacks is modified
+    if (isStockOnly) {
       if (basePrice !== undefined || isFavorite !== undefined || isActive !== undefined || name !== undefined || sku !== undefined || (tagIds !== undefined && tagIds.length > 0)) {
-        return NextResponse.json({ error: 'Роль SELLER не имеет права изменять наименование, SKU, цены или теги.' }, { status: 403 });
+        return NextResponse.json({ error: 'У вашей роли есть права только на изменение складских остатков.' }, { status: 403 });
       }
     }
 
@@ -70,9 +57,9 @@ export async function PUT(req: NextRequest) {
       await prisma.$transaction(async (tx) => {
         // Update common simple fields
         const updateData: any = {};
-        if (basePrice !== undefined) updateData.basePrice = parseFloat(basePrice);
-        if (isFavorite !== undefined) updateData.isFavorite = !!isFavorite;
-        if (isActive !== undefined) updateData.isActive = !!isActive;
+        if (basePrice !== undefined && isFullManager) updateData.basePrice = parseFloat(basePrice);
+        if (isFavorite !== undefined && isFullManager) updateData.isFavorite = !!isFavorite;
+        if (isActive !== undefined && isFullManager) updateData.isActive = !!isActive;
         if (stockPacks !== undefined) updateData.stockPacks = parseInt(stockPacks);
 
         if (Object.keys(updateData).length > 0) {
@@ -83,7 +70,7 @@ export async function PUT(req: NextRequest) {
         }
 
         // Relational tag updates need to be done individually per product
-        if (tagIds !== undefined && Array.isArray(tagIds)) {
+        if (tagIds !== undefined && Array.isArray(tagIds) && isFullManager) {
           for (const pid of ids) {
             await tx.product.update({
               where: { id: pid },
@@ -99,7 +86,7 @@ export async function PUT(req: NextRequest) {
         data: {
           userId: session.userId,
           action: 'BULK_UPDATE_PRODUCTS',
-          details: `Администратор массово обновил ${ids.length} товаров: цены=${basePrice !== undefined}, теги=${tagIds !== undefined}, активен=${isActive !== undefined}`
+          details: `Пользователь ${session.email} массово обновил ${ids.length} товаров`
         }
       });
 
@@ -108,15 +95,15 @@ export async function PUT(req: NextRequest) {
 
     // --- SINGLE UPDATE ---
     const updateData: any = {};
-    if (basePrice !== undefined) updateData.basePrice = parseFloat(basePrice);
-    if (isFavorite !== undefined) updateData.isFavorite = !!isFavorite;
-    if (isActive !== undefined) updateData.isActive = !!isActive;
-    if (name) updateData.name = name;
-    if (sku) updateData.sku = sku;
+    if (basePrice !== undefined && isFullManager) updateData.basePrice = parseFloat(basePrice);
+    if (isFavorite !== undefined && isFullManager) updateData.isFavorite = !!isFavorite;
+    if (isActive !== undefined && isFullManager) updateData.isActive = !!isActive;
+    if (name && isFullManager) updateData.name = name;
+    if (sku && isFullManager) updateData.sku = sku;
     if (stockPacks !== undefined) updateData.stockPacks = parseInt(stockPacks);
 
     // Handle tag re-assignment
-    if (tagIds !== undefined && Array.isArray(tagIds)) {
+    if (tagIds !== undefined && Array.isArray(tagIds) && isFullManager) {
       updateData.tags = { set: tagIds.map((tid: string) => ({ id: tid })) };
     }
 
@@ -130,7 +117,7 @@ export async function PUT(req: NextRequest) {
       data: {
         userId: session.userId,
         action: 'UPDATE_PRODUCT',
-        details: `Администратор обновил SKU ${product.sku}: цена=${product.basePrice}, запас=${product.stockPacks}, активен=${product.isActive}, изб=${product.isFavorite}`
+        details: `Пользователь ${session.email} обновил SKU ${product.sku}`
       }
     });
 
@@ -141,12 +128,11 @@ export async function PUT(req: NextRequest) {
 }
 
 /**
- * DELETE: Permanently removes a product and its order items (irreversible!)
- * Supports both single deletion (by id query param) and bulk deletion (by ids comma-separated query param).
+ * DELETE: Permanently removes a product
  */
 export async function DELETE(req: NextRequest) {
   try {
-    const adminSession = await requireAdmin(req);
+    const adminSession = requirePermission(req, 'products:manage');
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id') ?? undefined;
     const idsParam = searchParams.get('ids') ?? undefined;
@@ -171,7 +157,7 @@ export async function DELETE(req: NextRequest) {
         data: {
           userId: adminSession.userId,
           action: 'BULK_DELETE_PRODUCTS',
-          details: `Администратор массово удалил ${ids.length} товаров`
+          details: `Удалено ${ids.length} товаров из каталога`
         }
       });
 
@@ -184,7 +170,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Товар не найден.' }, { status: 404 });
     }
 
-    // Transaction: delete order items referencing this product, then delete product
     await prisma.$transaction(async (tx) => {
       await tx.orderItem.deleteMany({ where: { productId: id } });
       await tx.product.delete({ where: { id } });
@@ -194,7 +179,7 @@ export async function DELETE(req: NextRequest) {
       data: {
         userId: adminSession.userId,
         action: 'DELETE_PRODUCT',
-        details: `Администратор безвозвратно удалил SKU: ${product.sku} - ${product.name}`
+        details: `Удален товар SKU: ${product.sku} - ${product.name}`
       }
     });
 
@@ -206,8 +191,7 @@ export async function DELETE(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const adminSession = await requireAdmin(req);
-
+    const adminSession = requirePermission(req, 'products:manage');
     const body = await req.json();
 
     const {

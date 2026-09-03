@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Search, Star, Layers, Package, Grid, Plus, Minus, FileText, Check, AlertCircle, ShoppingCart, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { UnitMode, packsToUnit, unitToPacks, breakdownPacks } from '@/lib/conversion';
+import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 
 interface TagItem {
   id: string;
@@ -452,7 +453,10 @@ export default function CustomerCatalog() {
   }
 
   return (
-    <div className="space-y-8 animate-fade-in pb-28">
+    <div className="space-y-6 animate-fade-in pb-28">
+      {/* ── CUSTOMER KPI DASHBOARD ── */}
+      <CustomerKpiDashboard />
+
       {/* Active Edit Draft Banner */}
       {activeDraftId && (
         <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-xs sm:text-sm text-amber-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">

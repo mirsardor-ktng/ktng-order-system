@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { OrdersService } from '@/lib/orders/orders.service';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
-    }
+    const session = requirePermission(req, ['orders:view_all', 'orders:view_own', 'orders:create']);
 
     const { searchParams } = new URL(req.url);
     const customerId = searchParams.get('customerId') || undefined;
@@ -18,16 +15,13 @@ export async function GET(req: NextRequest) {
     const orders = await OrdersService.getOrders(session as any, { customerId, status });
     return NextResponse.json(orders);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 403 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
-    }
+    const session = requirePermission(req, 'orders:create');
 
     const body = await req.json();
     const { items, status } = body;
@@ -45,16 +39,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('[Create Order Error]', error);
-    return NextResponse.json({ error: error.message }, { status: 550 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function PUT(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
-    }
+    const session = requirePermission(req, ['orders:edit', 'orders:create']);
 
     const body = await req.json();
     const { orderId, items, status } = body;

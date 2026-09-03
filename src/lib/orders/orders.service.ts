@@ -9,13 +9,7 @@ import { AuditService } from '../audit/audit.service';
 import { PromotionsService } from '../promotions/promotions.service';
 import { ProductGroupService, SkuAllocation } from '../product-groups/product-groups.service';
 
-export interface JWTPayload {
-  userId: string;
-  email: string;
-  name: string;
-  role: 'ADMIN' | 'SELLER' | 'CUSTOMER' | 'MANAGER';
-  companyId?: string;
-}
+import { JWTPayload, hasPermission } from '../auth';
 
 export class OrdersService {
   /**
@@ -25,13 +19,17 @@ export class OrdersService {
     const { customerId, status } = options;
     const whereClause: any = {};
 
-    if (session.role === 'CUSTOMER') {
-      whereClause.companyId = session.companyId;
+    if (!hasPermission(session, 'orders:view_all')) {
+      if (session.companyId) {
+        whereClause.companyId = session.companyId;
+      } else {
+        whereClause.customerId = session.userId;
+      }
     } else {
       if (customerId) {
         whereClause.customerId = customerId;
       }
-      // SELLER, ADMIN, and MANAGER should not see DRAFT orders unless explicitly requested
+      // View all managers should not see DRAFT orders unless explicitly requested
       if (!status) {
         whereClause.status = { not: 'DRAFT' };
       }
@@ -184,8 +182,7 @@ export class OrdersService {
       fileUploadMsg = uploadResult.message;
     }
 
-    const savedOrder = await prisma.$transaction(
-      async (tx) => {
+    const savedOrder = await prisma.$transaction(async (tx) => {
       if (orderStatus === 'NEW') {
         // Decrement stock per individual SKU (supporting multi-SKU groups)
         for (const [, allocs] of itemAllocations) {
@@ -326,8 +323,9 @@ export class OrdersService {
 
     if (!existingOrder) throw new Error('Заказ не найден.');
 
-    // 1. Role-based edit permissions (Company-scoped for CUSTOMER)
-    if (session.role === 'CUSTOMER') {
+    // 1. Permission-based edit checks
+    const canViewAll = hasPermission(session, 'orders:view_all');
+    if (!canViewAll) {
       if (existingOrder.companyId && session.companyId && existingOrder.companyId !== session.companyId) {
         throw new Error('Нет доступа к заказам другой компании.');
       }
@@ -337,11 +335,7 @@ export class OrdersService {
       if (existingOrder.status !== 'DRAFT') {
         throw new Error('Клиент может редактировать только черновики.');
       }
-    } else if (session.role === 'MANAGER') {
-      if (existingOrder.status !== 'NEW') {
-        throw new Error('Менеджер может редактировать заказы только в статусе NEW.');
-      }
-    } else if (session.role === 'SELLER' || session.role === 'ADMIN') {
+    } else {
       if (existingOrder.status !== 'DRAFT' && existingOrder.status !== 'NEW') {
         throw new Error('Заказ можно редактировать только в статусе DRAFT или NEW.');
       }
@@ -358,28 +352,34 @@ export class OrdersService {
       include: { skus: { where: { isActive: true }, orderBy: { priority: 'asc' } } }
     });
     const groupMap = new Map(allGroups.map(g => [g.id, g]));
-    const dbProducts = await prisma.product.findMany({ where: { isActive: true } });
+    const dbProducts = await prisma.product.findMany();
     const productMap = new Map(dbProducts.map(p => [p.id, p]));
+
     const rawItems: any[] = [];
+    const isManualPricing = items.some(i => i.price !== undefined);
 
     for (const item of items) {
       const rawPacks = parseInt(item.baseQuantityPacks || item.quantityPacks || item.packs) || 0;
       const normalizedPacks = normalizePacks(rawPacks);
       if (normalizedPacks <= 0) continue;
 
-      const requestedId = item.groupId || item.productId || item.id;
+      const requestedId = item.productId || item.groupId || item.id;
       if (!requestedId) continue;
 
-      // 1. Check if requestedId is a ProductGroup
-      const group = groupMap.get(requestedId);
+      // 1. Check if requestedId or item.groupId is a ProductGroup
+      const group = groupMap.get(requestedId) || (item.groupId ? groupMap.get(item.groupId) : undefined);
       if (group && group.skus.length > 0) {
         const primarySku = group.skus[0];
+        const explicitPrice = item.price !== undefined ? Math.max(0, parseFloat(item.price)) : primarySku.basePrice;
         rawItems.push({
           productId: primarySku.id,
           sku: primarySku.sku,
           name: primarySku.name,
           baseQuantityPacks: normalizedPacks,
-          price: primarySku.basePrice,
+          quantityPacks: normalizedPacks,
+          price: explicitPrice,
+          isBonus: item.isBonus === true || (item.price !== undefined && explicitPrice === 0),
+          promotionNote: item.promotionNote,
           groupId: group.id,
           groupDisplayName: group.displayName,
           groupSkus: group.skus
@@ -391,35 +391,86 @@ export class OrdersService {
       const product = productMap.get(requestedId);
       if (product) {
         const parentGroup = product.groupId ? groupMap.get(product.groupId) : undefined;
+        const explicitPrice = item.price !== undefined ? Math.max(0, parseFloat(item.price)) : product.basePrice;
         rawItems.push({
           productId: product.id,
           sku: product.sku,
           name: product.name,
           baseQuantityPacks: normalizedPacks,
-          price: product.basePrice,
-          groupId: parentGroup?.id,
-          groupDisplayName: parentGroup?.displayName,
+          quantityPacks: normalizedPacks,
+          price: explicitPrice,
+          isBonus: item.isBonus === true || (item.price !== undefined && explicitPrice === 0),
+          promotionNote: item.promotionNote,
+          groupId: parentGroup?.id || null,
+          groupDisplayName: parentGroup?.displayName || null,
           groupSkus: parentGroup?.skus || [product]
         });
       }
     }
 
     if (rawItems.length === 0) {
-      throw new Error('Нет позиций с корректным количеством.');
+      throw new Error('Нет позиций с корректным количеством (минимум 1 блок).');
     }
 
-    // Process Promotions & Cost Redistribution (Single Source of Truth)
-    const promoResult = await PromotionsService.calculateOrder(rawItems, session.companyId || existingOrder.companyId);
+    let processedItems: any[] = [];
+    let fixedAmountDeductions: any[] = [];
+
+    if (!isManualPricing) {
+      // Customer catalog draft submission / conversion: apply automatic promotion rules
+      const promoResult = await PromotionsService.calculateOrder(rawItems, session.companyId || existingOrder.companyId);
+      processedItems = promoResult.items;
+      fixedAmountDeductions = promoResult.fixedAmountDeductions;
+    } else {
+      // Seller / Manager manual edit: preserve explicit custom prices and quantities
+      for (const item of rawItems) {
+        const isBonus = item.isBonus === true || item.price === 0;
+        const effectivePrice = isBonus ? 0 : item.price;
+        const itemTotalPrice = Math.round(item.quantityPacks * effectivePrice * 100) / 100;
+        const blocks = Math.floor(item.quantityPacks / 10);
+        const cases = Math.round((item.quantityPacks / 500) * 100) / 100;
+
+        processedItems.push({
+          productId: item.productId,
+          sku: item.sku,
+          name: item.name,
+          groupId: item.groupId,
+          groupDisplayName: item.groupDisplayName,
+          groupSkus: item.groupSkus,
+          baseQuantityPacks: isBonus ? 0 : item.quantityPacks,
+          baseQuantityBlocks: isBonus ? 0 : blocks,
+          baseQuantityCases: isBonus ? 0 : cases,
+          bonusQuantityPacks: isBonus ? item.quantityPacks : 0,
+          bonusQuantityBlocks: isBonus ? blocks : 0,
+          bonusQuantityCases: isBonus ? cases : 0,
+          totalQuantityPacks: item.quantityPacks,
+          totalQuantityBlocks: blocks,
+          totalQuantityCases: cases,
+          quantityPacks: item.quantityPacks,
+          quantityBlocks: blocks,
+          quantityCases: cases,
+          originalPrice: item.price,
+          price: item.price,
+          effectivePrice: effectivePrice,
+          itemTotalPrice: itemTotalPrice,
+          promotionDiscount: isBonus ? (item.quantityPacks * item.price) : 0,
+          isBonus: isBonus,
+          promotionId: null,
+          promotionNote: isBonus ? (item.promotionNote || 'Бонусная позиция') : null
+        });
+      }
+    }
+
+    const totalPacks = processedItems.reduce((sum, i) => sum + (i.totalQuantityPacks ?? i.quantityPacks), 0);
+    const totalBlocks = Math.floor(totalPacks / 10);
+    const totalCases = Math.round((totalPacks / 500) * 100) / 100;
+    const totalPrice = Math.round(processedItems.reduce((sum, i) => sum + i.itemTotalPrice, 0) * 100) / 100;
 
     // Compute SKU allocations for updateOrder
     const itemAllocations = new Map<string, SkuAllocation[]>();
     if (orderStatus === 'NEW') {
-      // How many packs are currently locked per SKU (to add back before re-checking)
-      // We look at existing OrderItemSku records for the old order
       const oldItemSkus = await prisma.orderItemSku.findMany({
         where: { orderItem: { orderId } }
       });
-      // Build a temporary stock map: add back old allocations to get "available" stock
       const tempStockMap = new Map<string, number>();
       for (const p of dbProducts) tempStockMap.set(p.id, p.stockPacks);
       if (existingOrder.status === 'NEW') {
@@ -428,13 +479,10 @@ export class OrdersService {
         }
       }
 
-      for (const vi of promoResult.items) {
-        const qty = vi.totalQuantityPacks;
-        if (typeof qty !== 'number' || isNaN(qty)) throw new Error(`Invalid quantity for product ${vi.productId}`);
-        const rawItem = rawItems.find(r => r.productId === vi.productId);
-        if (rawItem?.groupSkus && rawItem.groupSkus.length > 0) {
-          // Multi-SKU allocation using adjusted stock
-          const adjustedSkus = rawItem.groupSkus.map((s: any) => ({
+      for (const vi of processedItems) {
+        const qty = vi.totalQuantityPacks ?? vi.quantityPacks;
+        if (vi.groupSkus && vi.groupSkus.length > 0) {
+          const adjustedSkus = vi.groupSkus.map((s: any) => ({
             ...s,
             stockPacks: tempStockMap.get(s.id) ?? s.stockPacks
           }));
@@ -460,10 +508,10 @@ export class OrdersService {
     let fileUploadMsg = '';
 
     if (orderStatus === 'NEW') {
-      const uploadResult = await this.compileAndUploadExcel(existingOrder.orderNumber, existingOrder.customer.name, promoResult.items, {
-        totalBlocks: promoResult.totalBlocks,
-        totalCases: promoResult.totalCases,
-        totalPrice: promoResult.totalPrice
+      const uploadResult = await this.compileAndUploadExcel(existingOrder.orderNumber, existingOrder.customer.name, processedItems, {
+        totalBlocks,
+        totalCases,
+        totalPrice
       });
       orderFileUrl = uploadResult.fileUrl;
       fileId = uploadResult.fileId;
@@ -478,7 +526,6 @@ export class OrdersService {
           where: { orderItem: { orderId } }
         });
         if (oldItemSkus.length > 0) {
-          // Restore from granular SKU records
           for (const sku of oldItemSkus) {
             await tx.product.update({
               where: { id: sku.productId },
@@ -486,7 +533,6 @@ export class OrdersService {
             });
           }
         } else {
-          // Fallback: restore from OrderItem.productId (backward compat)
           for (const oldItem of existingOrder.items) {
             const oldQty = oldItem.totalQuantityPacks ?? oldItem.quantityPacks ?? 0;
             if (typeof oldQty === 'number' && !isNaN(oldQty)) {
@@ -497,7 +543,6 @@ export class OrdersService {
             }
           }
         }
-        // Delete old SKU allocation records (they'll be recreated)
         await tx.orderItemSku.deleteMany({ where: { orderItem: { orderId } } });
       }
 
@@ -517,7 +562,7 @@ export class OrdersService {
         }
 
         // Deduct consumable fixed-amount promotion budgets
-        for (const deduction of promoResult.fixedAmountDeductions) {
+        for (const deduction of fixedAmountDeductions) {
           await tx.promotion.update({
             where: { id: deduction.promotionId },
             data: {
@@ -530,48 +575,54 @@ export class OrdersService {
 
       await tx.orderItem.deleteMany({ where: { orderId } });
 
-      // Update timestamp when saving/updating a draft or when submitting from draft
       const createdAtUpdate = (orderStatus === 'DRAFT' || (existingOrder.status === 'DRAFT' && orderStatus === 'NEW')) ? now : existingOrder.createdAt;
 
       const order = await tx.order.update({
         where: { id: orderId },
         data: {
           status: orderStatus,
-          totalPacks: promoResult.totalPacks,
-          totalBlocks: promoResult.totalBlocks,
-          totalCases: promoResult.totalCases,
-          totalPrice: promoResult.totalPrice,
+          totalPacks,
+          totalBlocks,
+          totalCases,
+          totalPrice,
           fileUrl: orderFileUrl,
           fileId,
           fileName,
           createdAt: createdAtUpdate,
           updatedAt: now,
           items: {
-            create: promoResult.items.map(vi => {
+            create: processedItems.map(vi => {
               const rawItem = rawItems.find(r => r.productId === vi.productId);
+              const totalPacks = vi.totalQuantityPacks ?? vi.quantityPacks ?? 0;
+              const totalBlocks = vi.totalQuantityBlocks ?? vi.quantityBlocks ?? Math.floor(totalPacks / 10);
+              const totalCases = vi.totalQuantityCases ?? vi.quantityCases ?? (Math.round((totalPacks / 500) * 100) / 100);
+              const basePrice = vi.price ?? vi.originalPrice ?? 0;
+              const effPrice = vi.effectivePrice ?? (vi.isBonus ? 0 : basePrice);
+              const itemTotal = vi.itemTotalPrice ?? (Math.round(totalPacks * effPrice * 100) / 100);
+
               return {
                 productId: vi.productId,
                 productNameSnapshot: vi.name,
                 skuSnapshot: vi.sku,
-                groupId: rawItem?.groupId || null,
-                groupDisplayName: rawItem?.groupDisplayName || null,
-                baseQuantityPacks: vi.baseQuantityPacks,
-                baseQuantityBlocks: vi.baseQuantityBlocks,
-                baseQuantityCases: vi.baseQuantityCases,
-                bonusQuantityPacks: vi.bonusQuantityPacks,
-                bonusQuantityBlocks: vi.bonusQuantityBlocks,
-                bonusQuantityCases: vi.bonusQuantityCases,
-                totalQuantityPacks: vi.totalQuantityPacks,
-                totalQuantityBlocks: vi.totalQuantityBlocks,
-                totalQuantityCases: vi.totalQuantityCases,
-                quantityPacks: vi.totalQuantityPacks,
-                quantityBlocks: vi.totalQuantityBlocks,
-                quantityCases: vi.totalQuantityCases,
-                price: vi.originalPrice,
-                effectivePrice: vi.effectivePrice,
-                itemTotalPrice: vi.itemTotalPrice,
-                promotionDiscount: vi.promotionDiscount,
-                isBonus: vi.isBonus,
+                groupId: vi.groupId || rawItem?.groupId || null,
+                groupDisplayName: vi.groupDisplayName || rawItem?.groupDisplayName || null,
+                baseQuantityPacks: vi.baseQuantityPacks ?? (vi.isBonus ? 0 : totalPacks),
+                baseQuantityBlocks: vi.baseQuantityBlocks ?? (vi.isBonus ? 0 : totalBlocks),
+                baseQuantityCases: vi.baseQuantityCases ?? (vi.isBonus ? 0 : totalCases),
+                bonusQuantityPacks: vi.bonusQuantityPacks ?? (vi.isBonus ? totalPacks : 0),
+                bonusQuantityBlocks: vi.bonusQuantityBlocks ?? (vi.isBonus ? totalBlocks : 0),
+                bonusQuantityCases: vi.bonusQuantityCases ?? (vi.isBonus ? totalCases : 0),
+                totalQuantityPacks: totalPacks,
+                totalQuantityBlocks: totalBlocks,
+                totalQuantityCases: totalCases,
+                quantityPacks: totalPacks,
+                quantityBlocks: totalBlocks,
+                quantityCases: totalCases,
+                price: basePrice,
+                effectivePrice: effPrice,
+                itemTotalPrice: itemTotal,
+                promotionDiscount: vi.promotionDiscount ?? (vi.isBonus ? (totalPacks * basePrice) : 0),
+                isBonus: vi.isBonus ?? (effPrice === 0),
                 promotionId: vi.promotionId || null,
                 promotionNote: vi.promotionNote || null
               };
@@ -603,13 +654,13 @@ export class OrdersService {
     });
 
     const oldFormat = existingOrder.items.map(i => ({ name: i.productNameSnapshot || i.product?.name || 'Неизвестно', quantity: i.totalQuantityPacks ?? i.quantityPacks }));
-    const newFormat = promoResult.items.map(i => ({ name: i.name, quantity: i.totalQuantityPacks }));
+    const newFormat = processedItems.map(i => ({ name: i.name, quantity: i.totalQuantityPacks }));
     const diff = AuditService.formatItemsDiff(oldFormat, newFormat);
 
-    let auditDetails = `${orderStatus === 'DRAFT' ? 'Обновлён черновик' : 'Отправлен заказ из черновика'} ${existingOrder.orderNumber}. Стоимость: ${promoResult.totalPrice} UZS`;
+    let auditDetails = `${orderStatus === 'DRAFT' ? 'Обновлён черновик' : 'Отредактирован заказ'} ${existingOrder.orderNumber}. Стоимость: ${totalPrice} UZS`;
     if (orderStatus === 'NEW' && existingOrder.createdByUserId && existingOrder.createdByUserId !== session.userId) {
       const creatorName = existingOrder.createdBy?.name || 'коллегой';
-      auditDetails = `Пользователь ${session.name || session.email} отправил черновик, созданный пользователем ${creatorName}. Номер заказа: ${existingOrder.orderNumber}. Стоимость: ${promoResult.totalPrice} UZS`;
+      auditDetails = `Пользователь ${session.name || session.email} отправил черновик, созданный пользователем ${creatorName}. Номер заказа: ${existingOrder.orderNumber}. Стоимость: ${totalPrice} UZS`;
     }
 
     await AuditService.log({

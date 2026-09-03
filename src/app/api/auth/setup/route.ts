@@ -5,19 +5,19 @@ import { signToken, getCookieOptions } from '@/lib/auth';
 import { uploadFile } from '@/lib/gdrive';
 import { encrypt } from '@/lib/security';
 import { createDefaultExcelTemplateOnDisk } from '@/lib/excel';
+import { DEFAULT_ROLE_TEMPLATES, ALL_PERMISSIONS } from '@/lib/permissions';
 import path from 'path';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * GET: Checks if the setup wizard is required (i.e. whether any Admin exists).
  */
 export async function GET() {
   try {
-    const adminCount = await prisma.user.count({
-      where: { role: 'ADMIN' }
-    });
-
+    const userCount = await prisma.user.count();
     return NextResponse.json({
-      setupRequired: adminCount === 0
+      setupRequired: userCount === 0
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -25,17 +25,12 @@ export async function GET() {
 }
 
 /**
- * POST: Runs the setup wizard, creating the very first Administrator.
- * Automatically compiles the default Excel Order sheet and uploads it.
+ * POST: Runs the setup wizard, creating default role templates and the first Superadmin.
  */
 export async function POST(req: NextRequest) {
   try {
-    // 1. Ensure no Admin accounts already exist
-    const adminCount = await prisma.user.count({
-      where: { role: 'ADMIN' }
-    });
-
-    if (adminCount > 0) {
+    const userCount = await prisma.user.count();
+    if (userCount > 0) {
       return NextResponse.json({ error: 'Инициализация уже была выполнена ранее.' }, { status: 400 });
     }
 
@@ -46,16 +41,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Не все поля заполнены.' }, { status: 400 });
     }
 
+    // 1. Seed all default role templates if not yet in database
+    for (const tpl of DEFAULT_ROLE_TEMPLATES) {
+      await prisma.roleTemplate.upsert({
+        where: { name: tpl.name },
+        update: {
+          description: tpl.description,
+          isSystem: tpl.isSystem,
+          defaultDashboard: tpl.defaultDashboard,
+          permissions: tpl.permissions
+        },
+        create: {
+          name: tpl.name,
+          description: tpl.description,
+          isSystem: tpl.isSystem,
+          defaultDashboard: tpl.defaultDashboard,
+          permissions: tpl.permissions
+        }
+      });
+    }
+
+    const superAdminRole = await prisma.roleTemplate.findUnique({
+      where: { name: 'Суперадминистратор' }
+    });
+
     // 2. Hash admin password strictly with bcrypt
     const passwordHash = await bcrypt.hash(password, 10);
 
     // 3. Create administrator in DB
     const admin = await prisma.user.create({
       data: {
-        name,
-        email,
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
         passwordHash,
-        role: 'ADMIN'
+        role: 'ADMIN',
+        roleTemplateId: superAdminRole?.id || null
+      },
+      include: {
+        roleTemplate: true
       }
     });
 
@@ -77,7 +100,7 @@ export async function POST(req: NextRequest) {
       data: {
         userId: admin.id,
         action: 'SETUP_COMPLETED',
-        details: `Первый запуск завершен. Создан администратор: ${email}`
+        details: `Первый запуск завершен. Создан суперадминистратор: ${email}`
       }
     });
 
@@ -92,12 +115,25 @@ export async function POST(req: NextRequest) {
       userId: admin.id,
       email: admin.email,
       name: admin.name,
-      role: 'ADMIN'
+      role: 'ADMIN',
+      roleTemplateId: superAdminRole?.id || undefined,
+      roleName: 'Суперадминистратор',
+      permissions: ALL_PERMISSIONS,
+      defaultDashboard: '/admin'
     });
 
     const response = NextResponse.json({
       success: true,
-      user: { id: admin.id, email: admin.email, name: admin.name, role: 'ADMIN' }
+      user: {
+        id: admin.id,
+        email: admin.email,
+        name: admin.name,
+        role: 'ADMIN',
+        roleTemplateId: superAdminRole?.id,
+        roleName: 'Суперадминистратор',
+        permissions: ALL_PERMISSIONS,
+        defaultDashboard: '/admin'
+      }
     });
 
     const cookieOptions = getCookieOptions(7); // Keep setup session for 7 days

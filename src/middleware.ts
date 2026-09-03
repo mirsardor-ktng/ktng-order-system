@@ -67,6 +67,14 @@ async function verifyJWT(token: string, secret: string): Promise<any | null> {
   }
 }
 
+function hasPermission(payload: any, required: string[]): boolean {
+  if (!payload) return false;
+  if (payload.role === 'ADMIN' || payload.roleName === 'Суперадминистратор') return true;
+  const perms: string[] = payload.permissions || [];
+  if (perms.includes('*')) return true;
+  return required.some(r => perms.includes(r));
+}
+
 export async function middleware(req: NextRequest) {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -123,49 +131,123 @@ export async function middleware(req: NextRequest) {
     return response;
   }
 
-  // Role validation (RBAC)
-  const role = payload.role;
+  // 1. Roles & Users management
+  if (pathname.startsWith('/admin/roles') || pathname.startsWith('/api/admin/roles')) {
+    if (!hasPermission(payload, ['roles:manage', 'users:manage', 'users:read'])) {
+      return isApiPath 
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на управление ролями).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  } else if (pathname.startsWith('/admin/users') || pathname.startsWith('/api/admin/users')) {
+    if (!hasPermission(payload, ['users:read', 'users:manage'])) {
+      return isApiPath 
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на просмотр пользователей).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
 
-  // Protect admin endpoints / pages
+  // 2. Companies
+  if (pathname.startsWith('/admin/companies') || pathname.startsWith('/api/admin/companies')) {
+    if (!hasPermission(payload, ['companies:read', 'companies:manage'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на управление компаниями).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
+
+  // 3. Promotions
+  if (pathname.startsWith('/admin/promotions') || pathname.startsWith('/api/admin/promotions')) {
+    if (!hasPermission(payload, ['promotions:read', 'promotions:manage'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на управление акциями).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
+
+  // 4. Products, Groups, Tags
+  if (
+    pathname.startsWith('/admin/products') || pathname.startsWith('/api/admin/products') ||
+    pathname.startsWith('/admin/product-groups') || pathname.startsWith('/api/admin/product-groups') ||
+    pathname.startsWith('/admin/tags') || pathname.startsWith('/api/admin/tags')
+  ) {
+    if (!hasPermission(payload, ['products:read', 'products:manage', 'products:stock_update', 'product_groups:manage', 'tags:manage'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на каталог товаров).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
+
+  // 5. Templates, Placeholders, Import
+  if (
+    pathname.startsWith('/admin/templates') || pathname.startsWith('/api/admin/templates') ||
+    pathname.startsWith('/admin/placeholders') || pathname.startsWith('/api/admin/placeholders') ||
+    pathname.startsWith('/admin/import-history') || pathname.startsWith('/api/admin/import-history')
+  ) {
+    if (!hasPermission(payload, ['templates:manage', 'placeholders:manage', 'import:execute'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на шаблоны и интеграции).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
+
+  // 6. Logs & Settings
+  if (pathname.startsWith('/admin/logs') || pathname.startsWith('/api/admin/logs')) {
+    if (!hasPermission(payload, ['logs:view'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на просмотр логов).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
+
+  if (pathname.startsWith('/admin/settings') || pathname.startsWith('/api/admin/gdrive') || pathname.startsWith('/api/admin/recover-files')) {
+    if (!hasPermission(payload, ['settings:manage'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на системные настройки).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
+
+  // 7. General Admin access
   if (isAdminPath || pathname.startsWith('/api/admin')) {
-    if (role !== 'ADMIN') {
-      if (isApiPath) {
-        return new NextResponse(
-          JSON.stringify({ error: 'Доступ запрещен (требуется роль ADMIN).' }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      return new NextResponse('Доступ запрещен', { status: 403 });
+    if (!hasPermission(payload, [
+      'users:read', 'users:manage', 'roles:manage', 'companies:read', 'companies:manage',
+      'products:read', 'products:manage', 'products:stock_update', 'product_groups:manage',
+      'tags:manage', 'promotions:read', 'promotions:manage', 'analytics:view',
+      'templates:manage', 'placeholders:manage', 'import:execute', 'logs:view', 'settings:manage'
+    ])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ к консоли управления запрещен.' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
     }
   }
 
-  // Protect seller endpoints / pages (Seller, Manager and Admin are allowed)
+  // 8. Seller console
   if (isSellerPath) {
-    if (role !== 'SELLER' && role !== 'ADMIN' && role !== 'MANAGER') {
-      if (isApiPath) {
-        return new NextResponse(
-          JSON.stringify({ error: 'Доступ запрещен (требуется роль SELLER или MANAGER).' }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      return new NextResponse('Доступ запрещен', { status: 403 });
+    if (!hasPermission(payload, ['orders:create', 'orders:view_all', 'orders:edit', 'products:stock_update', 'analytics:view'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права менеджера заказов).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
     }
   }
 
-  // Protect customer endpoints / pages
+  // 9. Customer portal
   if (isCustomerPath) {
-    if (role !== 'CUSTOMER' && role !== 'SELLER' && role !== 'ADMIN' && role !== 'MANAGER') {
-      if (isApiPath) {
-        return new NextResponse(
-          JSON.stringify({ error: 'Доступ запрещен (неверная роль).' }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      return new NextResponse('Доступ запрещен', { status: 403 });
+    if (!hasPermission(payload, ['orders:view_own', 'orders:create', 'products:read', 'orders:view_all'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен.' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
     }
   }
 
-  // Protect analytics endpoints / pages (any authenticated role can access, checked above)
+  // 10. Analytics
+  if (isAnalyticsPath || pathname.startsWith('/api/analytics')) {
+    if (!hasPermission(payload, ['analytics:view', 'orders:view_all'])) {
+      return isApiPath
+        ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на аналитику).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+        : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  }
+
   return NextResponse.next();
 }
 

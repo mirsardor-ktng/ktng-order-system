@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@googleapis/drive';
-import { getSession } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import prisma from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
-    }
+    const session = requirePermission(req, 'settings:manage');
 
     const { searchParams } = new URL(req.url);
     const code = searchParams.get('code');

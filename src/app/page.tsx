@@ -33,11 +33,9 @@ export default function Home() {
           const sessionRes = await fetch('/api/auth/me');
           const sessionData = await sessionRes.json();
           
-          if (sessionData.authenticated) {
-            const role = sessionData.user.role;
-            if (role === 'ADMIN') router.replace('/admin');
-            else if (role === 'SELLER') router.replace('/seller');
-            else router.replace('/customer');
+          if (sessionData.authenticated && sessionData.user) {
+            const target = sessionData.user.defaultDashboard || (sessionData.user.role === 'ADMIN' ? '/admin' : sessionData.user.role === 'SELLER' ? '/seller' : '/customer');
+            router.replace(target);
           } else {
             router.replace('/login');
           }

@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { requirePermission } from '@/lib/auth';
 import { OrdersService } from '@/lib/orders/orders.service';
 
 export const dynamic = 'force-dynamic';
 
-async function requireAuthorizedStaff(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || (session.role !== 'ADMIN' && session.role !== 'SELLER' && session.role !== 'MANAGER')) {
-    throw new Error('Access denied');
-  }
-  return session;
-}
-
 export async function PUT(req: NextRequest) {
   try {
-    const session = await requireAuthorizedStaff(req);
+    const session = requirePermission(req, 'orders:status_change');
     const body = await req.json();
     const { orderId, status } = body;
 
