@@ -42,12 +42,27 @@ interface Product {
 
 /**
  * Calculates total packs in cart belonging to a product group or standalone product.
+ * Ensures each SKU or product ID is counted exactly once (no duplicate counting).
  */
 function getProductCartPacks(prod: Product, cartState: { [productId: string]: number }): number {
+  let total = 0;
+  const counted = new Set<string>();
+
   if (prod.skus && prod.skus.length > 0) {
-    return prod.skus.reduce((sum, s) => sum + (cartState[s.id] || 0), 0) + (prod.isGroup ? 0 : (cartState[prod.id] || 0));
+    for (const s of prod.skus) {
+      if (s.id && !counted.has(s.id)) {
+        counted.add(s.id);
+        total += (cartState[s.id] || 0);
+      }
+    }
   }
-  return cartState[prod.id] || 0;
+
+  // Only check prod.id for standalone products (not groups) if not already accounted for
+  if (!prod.isGroup && prod.id && !counted.has(prod.id)) {
+    total += cartState[prod.id] || 0;
+  }
+
+  return total;
 }
 
 /**
@@ -61,23 +76,27 @@ function setGroupPacksInCart(
 ): { [productId: string]: number } {
   const nextCart = { ...prevCart };
 
-  // Remove any legacy group ID key if present
-  delete nextCart[prod.id];
+  // Remove any legacy group ID key if this is a group
+  if (prod.isGroup) {
+    delete nextCart[prod.id];
+  }
 
   const skus = prod.skus && prod.skus.length > 0
     ? [...prod.skus].filter(s => s.isActive).sort((a, b) => a.priority - b.priority)
     : [];
 
   if (skus.length === 0) {
-    if (targetPacks > 0) {
-      nextCart[prod.id] = targetPacks;
-    } else {
-      delete nextCart[prod.id];
+    if (!prod.isGroup) {
+      if (targetPacks > 0) {
+        nextCart[prod.id] = targetPacks;
+      } else {
+        delete nextCart[prod.id];
+      }
     }
     return nextCart;
   }
 
-  let remaining = targetPacks;
+  let remaining = Math.max(0, targetPacks);
   for (const sku of skus) {
     if (remaining <= 0) {
       delete nextCart[sku.id];
@@ -227,7 +246,21 @@ export default function CustomerCatalog() {
                   : Math.max(0, (item.quantityPacks || item.totalQuantityPacks || 0) - (item.bonusQuantityPacks || 0));
 
                 // Key by concrete SKU productId to prevent different SKUs from collapsing into group ID
-                const key = item.productId || (item.groupId ? matchCatalogProduct(item, loadedProducts)?.id : undefined);
+                let key = item.productId;
+                if (key) {
+                  const matchedGroup = loadedProducts.find(p => p.id === key && p.isGroup && p.skus && p.skus.length > 0);
+                  if (matchedGroup && matchedGroup.skus && matchedGroup.skus.length > 0) {
+                    const primary = matchedGroup.skus.find(s => s.isActive) || matchedGroup.skus[0];
+                    key = primary.id;
+                  }
+                } else if (item.groupId) {
+                  const matched = matchCatalogProduct(item, loadedProducts);
+                  if (matched) {
+                    const primary = matched.skus?.find(s => s.isActive) || matched.skus?.[0];
+                    key = primary?.id || matched.id;
+                  }
+                }
+
                 if (key && basePacks > 0) {
                   draftCart[key] = (draftCart[key] || 0) + basePacks;
                 }
@@ -254,8 +287,9 @@ export default function CustomerCatalog() {
           for (const [keyId, qty] of Object.entries(preloadedRaw)) {
             const numQty = Number(qty) || 0;
             if (numQty > 0) {
-              // Preserve exact SKU Product.id without collapsing multiple SKUs into a group ID
-              normalizedPreloadCart[keyId] = (normalizedPreloadCart[keyId] || 0) + numQty;
+              const matchedGroup = loadedProducts.find(p => p.id === keyId && p.isGroup && p.skus && p.skus.length > 0);
+              const actualKey = (matchedGroup?.skus?.find(s => s.isActive)?.id) || keyId;
+              normalizedPreloadCart[actualKey] = (normalizedPreloadCart[actualKey] || 0) + numQty;
             }
           }
           setCart(normalizedPreloadCart);
@@ -788,9 +822,23 @@ export default function CustomerCatalog() {
                 ? 'блок'
                 : 'коробку';
 
-            const baseItemTotal = prod.skus && prod.skus.length > 0
-              ? prod.skus.reduce((sum, s) => sum + (cart[s.id] || 0) * s.basePrice, 0) + (prod.isGroup ? 0 : (cart[prod.id] || 0) * prod.basePrice)
-              : quantityInPacks * prod.basePrice;
+            let baseItemTotal = 0;
+            const countedPrice = new Set<string>();
+            if (prod.skus && prod.skus.length > 0) {
+              for (const s of prod.skus) {
+                if (s.id && !countedPrice.has(s.id)) {
+                  countedPrice.add(s.id);
+                  baseItemTotal += (cart[s.id] || 0) * (s.basePrice ?? prod.basePrice);
+                }
+              }
+            }
+            if (!prod.isGroup && prod.id && !countedPrice.has(prod.id)) {
+              baseItemTotal += (cart[prod.id] || 0) * prod.basePrice;
+            }
+            if (!prod.skus || prod.skus.length === 0) {
+              baseItemTotal = quantityInPacks * prod.basePrice;
+            }
+
             const finalItemTotal = calcItem && calcItem.itemTotalPrice !== undefined && calcItem.itemTotalPrice > 0
               ? calcItem.itemTotalPrice
               : baseItemTotal;
