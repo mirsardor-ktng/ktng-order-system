@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermission, hasPermission, getSession } from '@/lib/auth';
+import { requirePermission, requirePermissionAsync, hasPermission, getSession, getEffectivePermissions } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,14 +9,25 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    requirePermission(req, ['products:read', 'products:manage', 'products:stock_update']);
+    await requirePermissionAsync(req, ['products:read', 'products:manage', 'products:stock_update']);
+  } catch (error: any) {
+    const status = error.message === 'Необходима авторизация.' ? 401 : 403;
+    return NextResponse.json({ error: error.message }, { status });
+  }
+
+  try {
     const products = await prisma.product.findMany({
       include: { tags: true, group: { select: { id: true, displayName: true } } },
       orderBy: { name: 'asc' }
     });
     return NextResponse.json(products);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 403 });
+    console.error('Error fetching products:', error);
+    const msg = error?.message || '';
+    const safeError = msg.includes('prisma') || msg.includes('PrismaClient')
+      ? 'Ошибка базы данных при получении товаров.'
+      : (msg || 'Внутренняя ошибка сервера при получении товаров.');
+    return NextResponse.json({ error: safeError }, { status: 500 });
   }
 }
 
@@ -26,13 +37,25 @@ export async function GET(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session || (!hasPermission(session, 'products:manage') && !hasPermission(session, 'products:stock_update'))) {
-      return NextResponse.json({ error: 'У вас недостаточно прав для изменения товаров.' }, { status: 403 });
+    let session = getSession(req);
+    if (!session) {
+      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
     }
 
-    const isFullManager = hasPermission(session, 'products:manage');
-    const isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
+    let isFullManager = hasPermission(session, 'products:manage');
+    let isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
+
+    // Live DB permissions fallback in case JWT cookie has not yet been refreshed
+    if (!isFullManager && !isStockOnly) {
+      const effective = await getEffectivePermissions(session.userId);
+      session = { ...session, permissions: effective.permissions, roleName: effective.roleName, role: effective.role || session.role };
+      isFullManager = hasPermission(session, 'products:manage');
+      isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
+    }
+
+    if (!isFullManager && !isStockOnly) {
+      return NextResponse.json({ error: 'У вас недостаточно прав для изменения товаров.' }, { status: 403 });
+    }
 
     const body = await req.json();
     const { id, ids, basePrice, isFavorite, isActive, name, sku, stockPacks, tagIds } = body;
@@ -123,7 +146,12 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ success: true, product });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 403 });
+    console.error('Error updating product(s):', error);
+    const msg = error?.message || '';
+    const safeError = msg.includes('prisma') || msg.includes('PrismaClient')
+      ? 'Ошибка базы данных при обновлении товаров.'
+      : (msg || 'Внутренняя ошибка сервера при обновлении товаров.');
+    return NextResponse.json({ error: safeError }, { status: 500 });
   }
 }
 
@@ -131,8 +159,15 @@ export async function PUT(req: NextRequest) {
  * DELETE: Permanently removes a product
  */
 export async function DELETE(req: NextRequest) {
+  let adminSession;
   try {
-    const adminSession = requirePermission(req, 'products:manage');
+    adminSession = await requirePermissionAsync(req, 'products:manage');
+  } catch (error: any) {
+    const status = error.message === 'Необходима авторизация.' ? 401 : 403;
+    return NextResponse.json({ error: error.message }, { status });
+  }
+
+  try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id') ?? undefined;
     const idsParam = searchParams.get('ids') ?? undefined;
@@ -185,13 +220,25 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true, message: `Товар "${product.name}" удалён из каталога.` });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Error deleting product(s):', error);
+    const msg = error?.message || '';
+    const safeError = msg.includes('prisma') || msg.includes('PrismaClient')
+      ? 'Ошибка базы данных при удалении товаров.'
+      : (msg || 'Внутренняя ошибка сервера при удалении товаров.');
+    return NextResponse.json({ error: safeError }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
+  let adminSession;
   try {
-    const adminSession = requirePermission(req, 'products:manage');
+    adminSession = await requirePermissionAsync(req, 'products:manage');
+  } catch (error: any) {
+    const status = error.message === 'Необходима авторизация.' ? 401 : 403;
+    return NextResponse.json({ error: error.message }, { status });
+  }
+
+  try {
     const body = await req.json();
 
     const {
@@ -234,8 +281,13 @@ export async function POST(req: NextRequest) {
       product
     });
   } catch (error: any) {
+    console.error('Error creating product:', error);
+    const msg = error?.message || '';
+    const safeError = msg.includes('prisma') || msg.includes('PrismaClient')
+      ? 'Ошибка базы данных при создании товара.'
+      : (msg || 'Внутренняя ошибка сервера при создании товара.');
     return NextResponse.json(
-      { error: error.message },
+      { error: safeError },
       { status: 500 }
     );
   }

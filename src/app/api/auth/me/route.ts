@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { getSession, signToken, getCookieOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
 import { ALL_PERMISSIONS } from '@/lib/permissions';
 
@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET: Retrieves active user session with fresh permissions from DB
+ * and continuously refreshes the JWT session cookie with live DB permissions.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -37,7 +38,20 @@ export async function GET(req: NextRequest) {
       defaultDashboard = defaultDashboard || '/admin';
     }
 
-    return NextResponse.json({
+    // Refresh JWT session with updated DB permissions
+    const refreshedToken = signToken({
+      userId: dbUser.id,
+      email: dbUser.email,
+      name: dbUser.name,
+      role: dbUser.role || undefined,
+      roleTemplateId: dbUser.roleTemplateId || undefined,
+      roleName,
+      permissions,
+      defaultDashboard,
+      companyId: dbUser.companyId || undefined
+    });
+
+    const response = NextResponse.json({
       authenticated: true,
       user: {
         userId: dbUser.id,
@@ -53,6 +67,10 @@ export async function GET(req: NextRequest) {
         company: dbUser.company
       }
     });
+
+    const cookieOptions = getCookieOptions(1);
+    response.cookies.set(cookieOptions.name, refreshedToken, cookieOptions);
+    return response;
   } catch (error) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }

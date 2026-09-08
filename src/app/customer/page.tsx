@@ -12,10 +12,23 @@ interface TagItem {
   color: string;
 }
 
+interface SkuItem {
+  id: string;
+  sku: string;
+  name: string;
+  stockPacks: number;
+  priority: number;
+  isActive: boolean;
+  basePrice: number;
+  imageUrl?: string;
+  tags?: TagItem[];
+}
+
 interface Product {
   id: string;
   sku: string;
   name: string;
+  displayName?: string;
   imageUrl: string;
   basePrice: number;
   isActive: boolean;
@@ -24,23 +37,79 @@ interface Product {
   tags?: TagItem[];
   groupId?: string | null;
   isGroup?: boolean;
+  skus?: SkuItem[];
+}
+
+/**
+ * Calculates total packs in cart belonging to a product group or standalone product.
+ */
+function getProductCartPacks(prod: Product, cartState: { [productId: string]: number }): number {
+  if (prod.skus && prod.skus.length > 0) {
+    return prod.skus.reduce((sum, s) => sum + (cartState[s.id] || 0), 0) + (prod.isGroup ? 0 : (cartState[prod.id] || 0));
+  }
+  return cartState[prod.id] || 0;
+}
+
+/**
+ * Allocates total target packs across active SKUs in priority order (matching ProductGroupService.allocatePacks).
+ * Prevents collapsing into groupId and avoids arbitrary single-SKU selection.
+ */
+function setGroupPacksInCart(
+  prod: Product,
+  targetPacks: number,
+  prevCart: { [productId: string]: number }
+): { [productId: string]: number } {
+  const nextCart = { ...prevCart };
+
+  // Remove any legacy group ID key if present
+  delete nextCart[prod.id];
+
+  const skus = prod.skus && prod.skus.length > 0
+    ? [...prod.skus].filter(s => s.isActive).sort((a, b) => a.priority - b.priority)
+    : [];
+
+  if (skus.length === 0) {
+    if (targetPacks > 0) {
+      nextCart[prod.id] = targetPacks;
+    } else {
+      delete nextCart[prod.id];
+    }
+    return nextCart;
+  }
+
+  let remaining = targetPacks;
+  for (const sku of skus) {
+    if (remaining <= 0) {
+      delete nextCart[sku.id];
+      continue;
+    }
+    const alloc = Math.min(remaining, sku.stockPacks);
+    if (alloc > 0) {
+      nextCart[sku.id] = alloc;
+      remaining -= alloc;
+    } else {
+      delete nextCart[sku.id];
+    }
+  }
+
+  return nextCart;
 }
 
 export default function CustomerCatalog() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Catalog Search & Favorites Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([]);
-  
+
   // B2B Unit Selection Mode: PACKS (Пачки), BLOCKS (Блоки), CASES (Коробки)
   const [unitMode, setUnitMode] = useState<UnitMode>('BLOCKS');
 
   // Cart Quantities: Maps [productId] -> quantity in packs (always multiples of 10)
   const [cart, setCart] = useState<{ [productId: string]: number }>({});
-  
+
   // Real-time Promotion Engine Calculated Order state
   const [calculatedOrder, setCalculatedOrder] = useState<any | null>(null);
 
@@ -51,13 +120,14 @@ export default function CustomerCatalog() {
   // Active Draft editing states
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [activeDraftNumber, setActiveDraftNumber] = useState<string | null>(null);
+  const [loadingDraft, setLoadingDraft] = useState(false);
 
   // Real-time calculation effect via Promotion Engine API
   useEffect(() => {
     const items = Object.keys(cart)
       .filter(pId => (cart[pId] || 0) > 0)
       .map(pId => {
-        const prod = products.find(p => p.id === pId);
+        const prod = products.find(p => p.id === pId || p.skus?.some(s => s.id === pId));
         return {
           groupId: prod?.groupId || (prod?.isGroup ? prod.id : undefined),
           productId: pId,
@@ -103,7 +173,38 @@ export default function CustomerCatalog() {
         setLoading(false);
       }
     }
-    
+
+    // Helper function to match a draft or repeated item with loaded catalog items
+    function matchCatalogProduct(item: { productId?: string; groupId?: string | null; skuSnapshot?: string; sku?: string }, loadedProducts: Product[]): Product | undefined {
+      // 1. Group ID matches catalog item ID (groups use group.id as product.id in catalog)
+      if (item.groupId) {
+        const byGroupId = loadedProducts.find(p => p.id === item.groupId);
+        if (byGroupId) return byGroupId;
+      }
+
+      // 2. Direct product ID match (for standalone products)
+      if (item.productId) {
+        const byDirectId = loadedProducts.find(p => p.id === item.productId);
+        if (byDirectId) return byDirectId;
+
+        // 3. Child SKU match inside a product group
+        const byChildSku = loadedProducts.find(p => p.skus?.some(s => s.id === item.productId));
+        if (byChildSku) return byChildSku;
+      }
+
+      // 4. Match by SKU code snapshot
+      const skuCode = item.skuSnapshot || item.sku;
+      if (skuCode) {
+        const byChildSkuCode = loadedProducts.find(p => p.skus?.some(s => s.sku === skuCode));
+        if (byChildSkuCode) return byChildSkuCode;
+
+        const bySku = loadedProducts.find(p => p.sku === skuCode);
+        if (bySku) return bySku;
+      }
+
+      return undefined;
+    }
+
     // Check if there is a saved draft or repeated order to load
     async function checkDraftsAndPreload(loadedProducts: Product[]) {
       try {
@@ -112,6 +213,7 @@ export default function CustomerCatalog() {
         const urlDraftId = params.get('editDraftId') || params.get('draftId');
 
         if (urlDraftId) {
+          setLoadingDraft(true);
           const res = await fetch('/api/orders');
           if (res.ok) {
             const orders = await res.json();
@@ -119,20 +221,13 @@ export default function CustomerCatalog() {
             if (draftToEdit) {
               const draftCart: { [key: string]: number } = {};
               draftToEdit.items.forEach((item: any) => {
+                if (item.isBonus) return;
                 const basePacks = item.baseQuantityPacks !== undefined && item.baseQuantityPacks > 0
                   ? item.baseQuantityPacks
                   : Math.max(0, (item.quantityPacks || item.totalQuantityPacks || 0) - (item.bonusQuantityPacks || 0));
-                
-                // Match draft item to loaded catalog product (by groupId, productId, or nested SKU id)
-                const catalogProduct = loadedProducts.find(p => 
-                  (item.groupId && p.id === item.groupId) ||
-                  p.id === item.productId ||
-                  p.groupId === item.groupId ||
-                  p.sku === item.skuSnapshot ||
-                  (p as any).skus?.some((s: any) => s.id === item.productId || s.sku === item.skuSnapshot)
-                );
 
-                const key = catalogProduct ? catalogProduct.id : (item.groupId || item.productId);
+                // Key by concrete SKU productId to prevent different SKUs from collapsing into group ID
+                const key = item.productId || (item.groupId ? matchCatalogProduct(item, loadedProducts)?.id : undefined);
                 if (key && basePacks > 0) {
                   draftCart[key] = (draftCart[key] || 0) + basePacks;
                 }
@@ -140,26 +235,38 @@ export default function CustomerCatalog() {
               setCart(draftCart);
               setActiveDraftId(draftToEdit.id);
               setActiveDraftNumber(draftToEdit.orderNumber);
-              setMessage({ 
-                type: 'success', 
-                text: `Вы вошли в режим редактирования черновика ${draftToEdit.orderNumber}.` 
+              setMessage({
+                type: 'success',
+                text: `Вы вошли в режим редактирования черновика ${draftToEdit.orderNumber}.`
               });
+              setLoadingDraft(false);
               return;
             }
           }
+          setLoadingDraft(false);
         }
 
         // If no URL parameter, check localStorage preloads (for repeated orders)
         const preloadStr = localStorage.getItem('b2b_cart_preload');
         if (preloadStr) {
-          const preloadedCart = JSON.parse(preloadStr);
-          setCart(preloadedCart);
+          const preloadedRaw = JSON.parse(preloadStr);
+          const normalizedPreloadCart: { [key: string]: number } = {};
+          for (const [keyId, qty] of Object.entries(preloadedRaw)) {
+            const numQty = Number(qty) || 0;
+            if (numQty > 0) {
+              // Preserve exact SKU Product.id without collapsing multiple SKUs into a group ID
+              normalizedPreloadCart[keyId] = (normalizedPreloadCart[keyId] || 0) + numQty;
+            }
+          }
+          setCart(normalizedPreloadCart);
           localStorage.removeItem('b2b_cart_preload');
           setMessage({ type: 'success', text: 'Заказ успешно загружен для повторного оформления.' });
           return;
         }
       } catch (err) {
         console.error('Preload verification failed', err);
+      } finally {
+        setLoadingDraft(false);
       }
     }
 
@@ -184,10 +291,10 @@ export default function CustomerCatalog() {
   // Filter products based on search term, favorites, and tags
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
-      const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           p.sku.toLowerCase().includes(searchTerm.toLowerCase());
       const matchFav = !favoritesOnly || p.isFavorite;
-      const matchTags = selectedTagFilters.length === 0 || 
+      const matchTags = selectedTagFilters.length === 0 ||
                         (p.tags && selectedTagFilters.every(tagId => p.tags!.some(t => t.id === tagId)));
       return matchSearch && matchFav && matchTags;
     });
@@ -197,14 +304,16 @@ export default function CustomerCatalog() {
   const orderTotals = useMemo(() => {
     let packs = 0;
     let price = 0;
-    
+
     Object.keys(cart).forEach((pId) => {
       const q = cart[pId] || 0;
       if (q > 0) {
-        const prod = products.find(p => p.id === pId);
+        const prod = products.find(p => p.id === pId || p.skus?.some(s => s.id === pId));
         if (prod) {
+          const skuItem = prod.isGroup ? prod.skus?.find(s => s.id === pId) : prod;
+          const unitPrice = skuItem?.basePrice ?? prod.basePrice;
           packs += q;
-          price += q * prod.basePrice;
+          price += q * unitPrice;
         }
       }
     });
@@ -222,82 +331,63 @@ export default function CustomerCatalog() {
     };
   }, [cart, products]);
 
-  // Increments cart item (Stock Capped)
-  const handleIncrement = (productId: string) => {
-    const prod = products.find(p => p.id === productId);
+  // Increments cart item (Stock Capped, Allocates across SKUs in priority order)
+  const handleIncrement = (targetId: string) => {
+    const prod = products.find(p => p.id === targetId || p.skus?.some(s => s.id === targetId));
     if (!prod) return;
 
-    setCart((prev) => {
-      const current = prev[productId] || 0;
-      let increment = 10;
-      
-      if (unitMode === 'BLOCKS') {
-        increment = 10;
-      } else if (unitMode === 'CASES') {
-        increment = 500;
+    const currentPacks = getProductCartPacks(prod, cart);
+    let increment = 10;
+
+    if (unitMode === 'BLOCKS') {
+      increment = 10;
+    } else if (unitMode === 'CASES') {
+      increment = 500;
+    }
+
+    const nextVal = currentPacks + increment;
+
+    if (nextVal > prod.stockPacks) {
+      const maxAllowed = Math.floor(prod.stockPacks / 10) * 10;
+      if (currentPacks >= maxAllowed) {
+        setMessage({ type: 'error', text: `Превышен доступный лимит запаса для позиции: ${prod.name}` });
+        return;
       }
-      
-      const nextVal = current + increment;
-      
-      if (nextVal > prod.stockPacks) {
-        const maxAllowed = Math.floor(prod.stockPacks / 10) * 10;
-        if (current >= maxAllowed) {
-          setMessage({ type: 'error', text: `Превышен доступный лимит запаса для позиции: ${prod.name}` });
-          return prev;
-        }
-        setMessage({ type: 'error', text: `Достигнут лимит запаса для позиции: ${prod.name}` });
-        return {
-          ...prev,
-          [productId]: maxAllowed
-        };
-      }
-      
-      return {
-        ...prev,
-        [productId]: nextVal
-      };
-    });
+      setMessage({ type: 'error', text: `Достигнут лимит запаса для позиции: ${prod.name}` });
+      setCart((prev) => setGroupPacksInCart(prod, maxAllowed, prev));
+      return;
+    }
+
+    setCart((prev) => setGroupPacksInCart(prod, nextVal, prev));
   };
 
-  // Decrements cart item
-  const handleDecrement = (productId: string) => {
-    setCart((prev) => {
-      const current = prev[productId] || 0;
-      if (current <= 0) return prev;
-      
-      let decrement = 10;
-      if (unitMode === 'BLOCKS') {
-        decrement = 10;
-      } else if (unitMode === 'CASES') {
-        decrement = 500;
-      }
-      
-      const nextVal = current - decrement;
-      if (nextVal <= 0) {
-        const copy = { ...prev };
-        delete copy[productId];
-        return copy;
-      }
-      
-      return {
-        ...prev,
-        [productId]: nextVal
-      };
-    });
+  // Decrements cart item (Deallocates across SKUs in priority order)
+  const handleDecrement = (targetId: string) => {
+    const prod = products.find(p => p.id === targetId || p.skus?.some(s => s.id === targetId));
+    if (!prod) return;
+
+    const currentPacks = getProductCartPacks(prod, cart);
+    if (currentPacks <= 0) return;
+
+    let decrement = 10;
+    if (unitMode === 'BLOCKS') {
+      decrement = 10;
+    } else if (unitMode === 'CASES') {
+      decrement = 500;
+    }
+
+    const nextVal = Math.max(0, currentPacks - decrement);
+    setCart((prev) => setGroupPacksInCart(prod, nextVal, prev));
   };
 
-  // Handles raw number input by user (Stock Capped)
-  const handleInputChange = (productId: string, rawVal: string) => {
-    const prod = products.find(p => p.id === productId);
+  // Handles raw number input by user (Stock Capped, Allocates across SKUs in priority order)
+  const handleInputChange = (targetId: string, rawVal: string) => {
+    const prod = products.find(p => p.id === targetId || p.skus?.some(s => s.id === targetId));
     if (!prod) return;
 
     const val = parseFloat(rawVal) || 0;
     if (val <= 0) {
-      setCart((prev) => {
-        const copy = { ...prev };
-        delete copy[productId];
-        return copy;
-      });
+      setCart((prev) => setGroupPacksInCart(prod, 0, prev));
       return;
     }
 
@@ -305,16 +395,13 @@ export default function CustomerCatalog() {
 
     if (packs > prod.stockPacks) {
       packs = Math.floor(prod.stockPacks / 10) * 10;
-      setMessage({ 
-        type: 'error', 
-        text: `Запрошенное количество превышает остатки на складе. Установлен доступный максимум.` 
+      setMessage({
+        type: 'error',
+        text: `Запрошенное количество превышает остатки на складе. Установлен доступный максимум.`
       });
     }
 
-    setCart((prev) => ({
-      ...prev,
-      [productId]: packs
-    }));
+    setCart((prev) => setGroupPacksInCart(prod, packs, prev));
   };
 
   // Submits Draft (Save or Update)
@@ -325,7 +412,7 @@ export default function CustomerCatalog() {
     const items = Object.keys(cart)
       .filter(pId => cart[pId] > 0)
       .map(pId => {
-        const prod = products.find(p => p.id === pId);
+        const prod = products.find(p => p.id === pId || p.skus?.some(s => s.id === pId));
         return {
           groupId: prod?.groupId || (prod?.isGroup ? prod.id : undefined),
           productId: pId,
@@ -343,7 +430,7 @@ export default function CustomerCatalog() {
     try {
       const url = '/api/orders';
       const method = activeDraftId ? 'PUT' : 'POST';
-      const payload = activeDraftId 
+      const payload = activeDraftId
         ? { orderId: activeDraftId, items, status: 'DRAFT' }
         : { items, status: 'DRAFT' };
 
@@ -352,7 +439,7 @@ export default function CustomerCatalog() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      
+
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: 'success', text: data.message || 'Черновик сохранён.' });
@@ -379,7 +466,7 @@ export default function CustomerCatalog() {
     const items = Object.keys(cart)
       .filter(pId => cart[pId] > 0)
       .map(pId => {
-        const prod = products.find(p => p.id === pId);
+        const prod = products.find(p => p.id === pId || p.skus?.some(s => s.id === pId));
         return {
           groupId: prod?.groupId || (prod?.isGroup ? prod.id : undefined),
           productId: pId,
@@ -397,7 +484,7 @@ export default function CustomerCatalog() {
     try {
       const url = '/api/orders';
       const method = activeDraftId ? 'PUT' : 'POST';
-      const payload = activeDraftId 
+      const payload = activeDraftId
         ? { orderId: activeDraftId, items, status: 'NEW' }
         : { items, status: 'NEW' };
 
@@ -412,7 +499,7 @@ export default function CustomerCatalog() {
       if (res.ok) {
         setMessage({ type: 'success', text: data.message });
         setCart({});
-        
+
         if (activeDraftId) {
           setActiveDraftId(null);
           setActiveDraftNumber(null);
@@ -457,6 +544,14 @@ export default function CustomerCatalog() {
       {/* ── CUSTOMER KPI DASHBOARD ── */}
       <CustomerKpiDashboard />
 
+      {/* Draft Loading Indicator */}
+      {loadingDraft && (
+        <div className="rounded-2xl border border-indigo-500/25 bg-indigo-500/10 p-4 text-xs sm:text-sm text-indigo-300 flex items-center gap-3 animate-pulse">
+          <Loader2 className="h-5 w-5 animate-spin flex-shrink-0 text-indigo-400" />
+          <span>Загружаем сохраненный черновик и восстанавливаем позиции...</span>
+        </div>
+      )}
+
       {/* Active Edit Draft Banner */}
       {activeDraftId && (
         <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-xs sm:text-sm text-amber-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -487,8 +582,8 @@ export default function CustomerCatalog() {
       {/* Dynamic Alert Message */}
       {message && (
         <div className={`flex items-center gap-3 rounded-2xl border p-4 text-xs sm:text-sm animate-fade-in ${
-          message.type === 'success' 
-            ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' 
+          message.type === 'success'
+            ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400'
             : 'border-red-500/25 bg-red-500/10 text-red-400'
         }`}>
           {message.type === 'success' ? <Check className="h-5 w-5 flex-shrink-0" /> : <AlertCircle className="h-5 w-5 flex-shrink-0" />}
@@ -517,8 +612,8 @@ export default function CustomerCatalog() {
             <button
               onClick={() => setFavoritesOnly(!favoritesOnly)}
               className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-xs font-bold transition-all ${
-                favoritesOnly 
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' 
+                favoritesOnly
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                   : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
               }`}
             >
@@ -530,12 +625,12 @@ export default function CustomerCatalog() {
           {/* B2B Unit Selection Mode Switcher */}
           <div className="flex items-center gap-2.5 bg-slate-900/50 p-1.5 rounded-xl border border-white/5 w-full sm:w-auto overflow-x-auto">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-2 whitespace-nowrap">Единицы измерения:</span>
-            
+
             <button
               onClick={() => setUnitMode('PACKS')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                unitMode === 'PACKS' 
-                  ? 'bg-indigo-600 text-white shadow-glass-sm' 
+                unitMode === 'PACKS'
+                  ? 'bg-indigo-600 text-white shadow-glass-sm'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -546,8 +641,8 @@ export default function CustomerCatalog() {
             <button
               onClick={() => setUnitMode('BLOCKS')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                unitMode === 'BLOCKS' 
-                  ? 'bg-indigo-600 text-white shadow-glass-sm' 
+                unitMode === 'BLOCKS'
+                  ? 'bg-indigo-600 text-white shadow-glass-sm'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -558,8 +653,8 @@ export default function CustomerCatalog() {
             <button
               onClick={() => setUnitMode('CASES')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                unitMode === 'CASES' 
-                  ? 'bg-indigo-600 text-white shadow-glass-sm' 
+                unitMode === 'CASES'
+                  ? 'bg-indigo-600 text-white shadow-glass-sm'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -642,8 +737,8 @@ export default function CustomerCatalog() {
             {/* List of applied promotions pills */}
             <div className="flex flex-wrap gap-1.5 sm:justify-end">
               {calculatedOrder.appliedPromotions?.map((p: any, idx: number) => (
-                <span 
-                  key={idx} 
+                <span
+                  key={idx}
                   className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/35 text-emerald-200"
                 >
                   {p.note || p.promotionName}
@@ -664,35 +759,44 @@ export default function CustomerCatalog() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
           {filteredProducts.map((prod) => {
-            const quantityInPacks = cart[prod.id] || 0;
+            const quantityInPacks = getProductCartPacks(prod, cart);
             const uiQuantity = packsToUnit(quantityInPacks, unitMode);
             const inCart = quantityInPacks > 0;
             const isOutOfStock = prod.stockPacks <= 0;
-            const calcItem = calculatedOrder?.items?.find((i: any) => 
-              i.productId === prod.id || 
-              (prod.groupId && (i.groupId === prod.groupId || i.productId === prod.groupId))
+            const calcItem = calculatedOrder?.items?.find((i: any) =>
+              i.productId === prod.id ||
+              (prod.groupId && (i.groupId === prod.groupId || i.productId === prod.groupId)) ||
+              (prod.skus?.some(s => s.id === i.productId))
             );
 
-            // Price according to the selected UnitMode
-            const displayPrice = unitMode === 'PACKS' 
-              ? prod.basePrice 
-              : unitMode === 'BLOCKS' 
-                ? prod.basePrice * 10 
-                : prod.basePrice * 500;
+            // Price according to the selected UnitMode and SKU price variation
+            const activeSkus = prod.skus && prod.skus.length > 0 ? prod.skus.filter(s => s.isActive) : [];
+            const skuPrices = activeSkus.length > 0 ? activeSkus.map(s => s.basePrice) : [prod.basePrice];
+            const minBasePrice = Math.min(...skuPrices);
+            const maxBasePrice = Math.max(...skuPrices);
+            const hasPriceRange = minBasePrice !== maxBasePrice;
 
-            const unitName = unitMode === 'PACKS' 
-              ? 'пачку' 
-              : unitMode === 'BLOCKS' 
-                ? 'блок' 
+            const displayPrice = unitMode === 'PACKS'
+              ? minBasePrice
+              : unitMode === 'BLOCKS'
+                ? minBasePrice * 10
+                : minBasePrice * 500;
+
+            const unitName = unitMode === 'PACKS'
+              ? 'пачку'
+              : unitMode === 'BLOCKS'
+                ? 'блок'
                 : 'коробку';
 
-            const baseItemTotal = quantityInPacks * prod.basePrice;
+            const baseItemTotal = prod.skus && prod.skus.length > 0
+              ? prod.skus.reduce((sum, s) => sum + (cart[s.id] || 0) * s.basePrice, 0) + (prod.isGroup ? 0 : (cart[prod.id] || 0) * prod.basePrice)
+              : quantityInPacks * prod.basePrice;
             const finalItemTotal = calcItem && calcItem.itemTotalPrice !== undefined && calcItem.itemTotalPrice > 0
               ? calcItem.itemTotalPrice
               : baseItemTotal;
 
             return (
-              <div 
+              <div
                 key={prod.id}
                 className={`glass-card rounded-2xl p-4 flex flex-col justify-between transition-all ${
                   inCart ? 'border-primary/45 shadow-glow-primary bg-indigo-950/5' : ''
@@ -721,9 +825,9 @@ export default function CustomerCatalog() {
                   {/* Cigarette Cover Image */}
                   <div className="h-32 w-full rounded-xl bg-gradient-to-b from-slate-800/40 to-slate-900/60 flex items-center justify-center mb-3 relative overflow-hidden border border-white/5">
                     {prod.imageUrl && prod.imageUrl !== 'default-pack' ? (
-                      <img 
-                        src={prod.imageUrl} 
-                        alt={prod.name} 
+                      <img
+                        src={prod.imageUrl}
+                        alt={prod.name}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -752,13 +856,13 @@ export default function CustomerCatalog() {
 
                   {/* SKU Name */}
                   <h4 className="font-bold text-slate-200 text-sm tracking-tight line-clamp-1">{prod.name}</h4>
-                  
+
                   {/* Card Tags list */}
                   {prod.tags && prod.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1 mb-2">
                       {prod.tags.map(t => (
-                        <span 
-                          key={t.id} 
+                        <span
+                          key={t.id}
                           className="text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider"
                           style={{ backgroundColor: `${t.color}20`, color: t.color, border: `1px solid ${t.color}30` }}
                         >
@@ -767,11 +871,13 @@ export default function CustomerCatalog() {
                       ))}
                     </div>
                   )}
-                  
+
                   {/* Price display per units (so'm currency) */}
                   <div className="flex justify-between items-baseline mt-2 mb-4">
                     <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Цена за {unitName}:</span>
-                    <span className="font-bold text-sm text-slate-100">{displayPrice.toLocaleString()} so'm</span>
+                    <span className="font-bold text-sm text-slate-100">
+                      {hasPriceRange ? `от ${displayPrice.toLocaleString()}` : displayPrice.toLocaleString()} so'm
+                    </span>
                   </div>
                 </div>
 
@@ -785,7 +891,7 @@ export default function CustomerCatalog() {
                     >
                       <Minus className="h-3.5 w-3.5" />
                     </button>
-                    
+
                     <input
                       type="text"
                       className="flex-1 w-full text-center bg-transparent border-0 text-slate-100 text-xs font-bold focus:outline-none disabled:opacity-30"
@@ -828,7 +934,7 @@ export default function CustomerCatalog() {
                           <span>-{Math.round(calcItem.promotionDiscount).toLocaleString()} so'm</span>
                         </div>
                       )}
-                      
+
                       {/* Real-time Promotion Engine Bonus Breakdown */}
                       {calcItem && calcItem.bonusQuantityPacks > 0 && (
                         <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-2 text-[10px] space-y-0.5">
@@ -881,8 +987,8 @@ export default function CustomerCatalog() {
                 <div className="flex flex-wrap items-center gap-x-2 text-slate-400 text-xs font-semibold">
                   <span>Активный заказ:</span>
                   <span className="text-primary-focus font-bold">
-                    {calculatedOrder 
-                      ? `${calculatedOrder.totalBlocks} бл. (${calculatedOrder.totalCases} кор.)` 
+                    {calculatedOrder
+                      ? `${calculatedOrder.totalBlocks} бл. (${calculatedOrder.totalCases} кор.)`
                       : orderTotals.breakdownLabel}
                   </span>
                   {calculatedOrder && calculatedOrder.totalBonusBlocks > 0 && (

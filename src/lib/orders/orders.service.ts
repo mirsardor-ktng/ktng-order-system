@@ -53,7 +53,15 @@ export class OrdersService {
         },
         items: {
           include: {
-            product: true
+            product: true,
+            skuAllocations: {
+              include: {
+                product: {
+                  select: { priority: true }
+                }
+              },
+              orderBy: { id: 'asc' }
+            }
           }
         },
         comments: {
@@ -90,11 +98,28 @@ export class OrdersService {
       const normalizedPacks = normalizePacks(rawPacks);
       if (normalizedPacks <= 0) continue;
 
-      const requestedId = item.groupId || item.productId || item.id;
+      const requestedId = item.productId || item.groupId || item.id;
       if (!requestedId) continue;
 
-      // 1. Check if requestedId is a ProductGroup
-      const group = groupMap.get(requestedId);
+      // 1. Check if item has a direct Product (SKU) match
+      const directProduct = item.productId ? productMap.get(item.productId) : undefined;
+      if (directProduct) {
+        const parentGroup = directProduct.groupId ? groupMap.get(directProduct.groupId) : undefined;
+        rawItems.push({
+          productId: directProduct.id,
+          sku: directProduct.sku,
+          name: directProduct.name,
+          baseQuantityPacks: normalizedPacks,
+          price: directProduct.basePrice,
+          groupId: parentGroup?.id,
+          groupDisplayName: parentGroup?.displayName,
+          groupSkus: parentGroup?.skus || [directProduct]
+        });
+        continue;
+      }
+
+      // 2. Check if requestedId is a ProductGroup
+      const group = groupMap.get(requestedId) || (item.groupId ? groupMap.get(item.groupId) : undefined);
       if (group && group.skus.length > 0) {
         const primarySku = group.skus[0];
         rawItems.push({
@@ -110,7 +135,7 @@ export class OrdersService {
         continue;
       }
 
-      // 2. Check if requestedId is a Product (SKU)
+      // 3. Fallback: Check if requestedId is a Product (SKU)
       const product = productMap.get(requestedId);
       if (product) {
         const parentGroup = product.groupId ? groupMap.get(product.groupId) : undefined;
@@ -184,17 +209,28 @@ export class OrdersService {
 
     const savedOrder = await prisma.$transaction(async (tx) => {
       if (orderStatus === 'NEW') {
-        // Decrement stock per individual SKU (supporting multi-SKU groups)
+        // Consolidate stock decrements per unique SKU to minimize queries and prevent race conditions
+        const stockDecrements = new Map<string, number>();
         for (const [, allocs] of itemAllocations) {
           for (const alloc of allocs) {
-            const prod = await tx.product.findUnique({ where: { id: alloc.productId } });
-            if (!prod || prod.stockPacks < alloc.packs) {
-              throw new Error(`Превышен доступный лимит запасов для позиции: ${prod?.name || 'неизвестно'}`);
+            stockDecrements.set(alloc.productId, (stockDecrements.get(alloc.productId) || 0) + alloc.packs);
+          }
+        }
+
+        // Conditional atomic update: decrement only if stockPacks >= neededPacks
+        for (const [productId, neededPacks] of stockDecrements) {
+          const res = await tx.product.updateMany({
+            where: {
+              id: productId,
+              stockPacks: { gte: neededPacks }
+            },
+            data: {
+              stockPacks: { decrement: neededPacks }
             }
-            await tx.product.update({
-              where: { id: alloc.productId },
-              data: { stockPacks: { decrement: alloc.packs } }
-            });
+          });
+          if (res.count === 0) {
+            const pName = productMap.get(productId)?.name || 'неизвестно';
+            throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
           }
         }
 
@@ -263,30 +299,33 @@ export class OrdersService {
         }
       });
 
-      // Write per-SKU allocations (OrderItemSku)
+      // Write per-SKU allocations in a single batch query (OrderItemSku)
       if (orderStatus === 'NEW') {
+        const allSkuRows: any[] = [];
         for (const item of order.items) {
           const allocs = itemAllocations.get(item.productId);
           if (allocs && allocs.length > 0) {
-            await tx.orderItemSku.createMany({
-              data: allocs.map(a => ({
+            for (const a of allocs) {
+              allSkuRows.push({
                 orderItemId: item.id,
                 productId: a.productId,
                 packs: a.packs,
                 sku: a.sku,
                 name: a.name
-              }))
-            });
+              });
+            }
           }
+        }
+        if (allSkuRows.length > 0) {
+          await tx.orderItemSku.createMany({ data: allSkuRows });
         }
       }
 
       return order;
-    },
-    {
-      timeout: 15000
-    }
-    );
+    }, {
+      timeout: 20000,
+      maxWait: 10000
+    });
 
     const diff = AuditService.formatItemsDiff([], promoResult.items.map(i => ({ name: i.name, quantity: i.totalQuantityPacks })));
     await AuditService.log({
@@ -366,7 +405,28 @@ export class OrdersService {
       const requestedId = item.productId || item.groupId || item.id;
       if (!requestedId) continue;
 
-      // 1. Check if requestedId or item.groupId is a ProductGroup
+      // 1. Check if item has a direct Product (SKU) match
+      const directProduct = item.productId ? productMap.get(item.productId) : undefined;
+      if (directProduct) {
+        const parentGroup = directProduct.groupId ? groupMap.get(directProduct.groupId) : undefined;
+        const explicitPrice = item.price !== undefined ? Math.max(0, parseFloat(item.price)) : directProduct.basePrice;
+        rawItems.push({
+          productId: directProduct.id,
+          sku: directProduct.sku,
+          name: directProduct.name,
+          baseQuantityPacks: normalizedPacks,
+          quantityPacks: normalizedPacks,
+          price: explicitPrice,
+          isBonus: item.isBonus === true || (item.price !== undefined && explicitPrice === 0),
+          promotionNote: item.promotionNote,
+          groupId: parentGroup?.id || null,
+          groupDisplayName: parentGroup?.displayName || null,
+          groupSkus: parentGroup?.skus || [directProduct]
+        });
+        continue;
+      }
+
+      // 2. Check if requestedId or item.groupId is a ProductGroup
       const group = groupMap.get(requestedId) || (item.groupId ? groupMap.get(item.groupId) : undefined);
       if (group && group.skus.length > 0) {
         const primarySku = group.skus[0];
@@ -387,7 +447,7 @@ export class OrdersService {
         continue;
       }
 
-      // 2. Check if requestedId is a Product (SKU)
+      // 3. Fallback: Check if requestedId is a Product (SKU)
       const product = productMap.get(requestedId);
       if (product) {
         const parentGroup = product.groupId ? groupMap.get(product.groupId) : undefined;
@@ -525,39 +585,51 @@ export class OrdersService {
         const oldItemSkus = await tx.orderItemSku.findMany({
           where: { orderItem: { orderId } }
         });
+        const restoreMap = new Map<string, number>();
         if (oldItemSkus.length > 0) {
           for (const sku of oldItemSkus) {
-            await tx.product.update({
-              where: { id: sku.productId },
-              data: { stockPacks: { increment: sku.packs } }
-            });
+            restoreMap.set(sku.productId, (restoreMap.get(sku.productId) || 0) + sku.packs);
           }
         } else {
           for (const oldItem of existingOrder.items) {
             const oldQty = oldItem.totalQuantityPacks ?? oldItem.quantityPacks ?? 0;
-            if (typeof oldQty === 'number' && !isNaN(oldQty)) {
-              await tx.product.update({
-                where: { id: oldItem.productId },
-                data: { stockPacks: { increment: oldQty } }
-              });
+            if (typeof oldQty === 'number' && !isNaN(oldQty) && oldQty > 0) {
+              restoreMap.set(oldItem.productId, (restoreMap.get(oldItem.productId) || 0) + oldQty);
             }
           }
+        }
+        for (const [pid, ppacks] of restoreMap) {
+          await tx.product.update({
+            where: { id: pid },
+            data: { stockPacks: { increment: ppacks } }
+          });
         }
         await tx.orderItemSku.deleteMany({ where: { orderItem: { orderId } } });
       }
 
       if (orderStatus === 'NEW') {
-        // Decrement stock per individual SKU
+        // Consolidate new stock decrements per unique SKU
+        const stockDecrements = new Map<string, number>();
         for (const [, allocs] of itemAllocations) {
           for (const alloc of allocs) {
-            const prod = await tx.product.findUnique({ where: { id: alloc.productId } });
-            if (!prod || prod.stockPacks < alloc.packs) {
-              throw new Error(`Превышен лимит запасов для позиции: ${prod?.name || 'неизвестно'}`);
+            stockDecrements.set(alloc.productId, (stockDecrements.get(alloc.productId) || 0) + alloc.packs);
+          }
+        }
+
+        // Conditional atomic update: decrement only if stockPacks >= neededPacks
+        for (const [productId, neededPacks] of stockDecrements) {
+          const res = await tx.product.updateMany({
+            where: {
+              id: productId,
+              stockPacks: { gte: neededPacks }
+            },
+            data: {
+              stockPacks: { decrement: neededPacks }
             }
-            await tx.product.update({
-              where: { id: alloc.productId },
-              data: { stockPacks: { decrement: alloc.packs } }
-            });
+          });
+          if (res.count === 0) {
+            const pName = productMap.get(productId)?.name || 'неизвестно';
+            throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
           }
         }
 
@@ -632,25 +704,32 @@ export class OrdersService {
         include: { items: { include: { product: true } } }
       });
 
-      // Write new per-SKU allocations
+      // Write new per-SKU allocations in a single batch query
       if (orderStatus === 'NEW') {
+        const allSkuRows: any[] = [];
         for (const item of order.items) {
           const allocs = itemAllocations.get(item.productId);
           if (allocs && allocs.length > 0) {
-            await tx.orderItemSku.createMany({
-              data: allocs.map(a => ({
+            for (const a of allocs) {
+              allSkuRows.push({
                 orderItemId: item.id,
                 productId: a.productId,
                 packs: a.packs,
                 sku: a.sku,
                 name: a.name
-              }))
-            });
+              });
+            }
           }
+        }
+        if (allSkuRows.length > 0) {
+          await tx.orderItemSku.createMany({ data: allSkuRows });
         }
       }
 
       return order;
+    }, {
+      timeout: 20000,
+      maxWait: 10000
     });
 
     const oldFormat = existingOrder.items.map(i => ({ name: i.productNameSnapshot || i.product?.name || 'Неизвестно', quantity: i.totalQuantityPacks ?? i.quantityPacks }));
@@ -800,6 +879,8 @@ export class OrdersService {
     };
   }
 
+  private static templateBufferCache: { fileId: string; buffer: Buffer; expiresAt: number } | null = null;
+
   /**
    * Helper: compile Excel template and upload to storage service
    */
@@ -810,7 +891,17 @@ export class OrdersService {
 
     if (activeTemplate && !activeTemplate.isLocal && activeTemplate.fileId) {
       templateFileName = activeTemplate.name.endsWith('.xlsx') ? activeTemplate.name : `${activeTemplate.name}.xlsx`;
-      templateBuffer = await storageService.downloadFile(activeTemplate.fileId, templateFileName, 'Templates');
+      const now = Date.now();
+      if (this.templateBufferCache && this.templateBufferCache.fileId === activeTemplate.fileId && this.templateBufferCache.expiresAt > now) {
+        templateBuffer = this.templateBufferCache.buffer;
+      } else {
+        templateBuffer = await storageService.downloadFile(activeTemplate.fileId, templateFileName, 'Templates');
+        this.templateBufferCache = {
+          fileId: activeTemplate.fileId,
+          buffer: templateBuffer,
+          expiresAt: now + 10 * 60 * 1000 // 10 minutes cache
+        };
+      }
     } else {
       const localPath = path.join(process.cwd(), 'templates', 'default_order_template.xlsx');
       if (fs.existsSync(localPath)) {

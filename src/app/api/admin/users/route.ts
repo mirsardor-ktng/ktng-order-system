@@ -48,6 +48,23 @@ export async function GET(req: NextRequest) {
 }
 
 /**
+ * Maps RoleTemplate name to legacy User.role.
+ * Permissions and defaultDashboard must NEVER determine User.role.
+ */
+function getLegacyRoleFromTemplateName(templateName?: string | null): 'ADMIN' | 'SELLER' | 'MANAGER' | 'CUSTOMER' {
+  switch (templateName) {
+    case 'Суперадминистратор':
+      return 'ADMIN';
+    case 'Менеджер продаж':
+      return 'SELLER';
+    case 'Ограниченный менеджер':
+      return 'MANAGER';
+    default:
+      return 'CUSTOMER';
+  }
+}
+
+/**
  * POST: Registers a new user with role template
  */
 export async function POST(req: NextRequest) {
@@ -73,15 +90,12 @@ export async function POST(req: NextRequest) {
 
     // Resolve role template
     let resolvedRoleTemplateId = roleTemplateId;
-    let legacyRole = role || 'CUSTOMER';
+    let legacyRole: 'ADMIN' | 'SELLER' | 'MANAGER' | 'CUSTOMER' = role || 'CUSTOMER';
 
     if (resolvedRoleTemplateId) {
       const template = await prisma.roleTemplate.findUnique({ where: { id: resolvedRoleTemplateId } });
       if (template) {
-        if (template.name === 'Суперадминистратор') legacyRole = 'ADMIN';
-        else if (template.name === 'Менеджер продаж') legacyRole = 'SELLER';
-        else if (template.name === 'Ограниченный менеджер') legacyRole = 'MANAGER';
-        else legacyRole = 'CUSTOMER';
+        legacyRole = getLegacyRoleFromTemplateName(template.name);
       }
     } else {
       // Find matching default role template if only legacy role was provided
@@ -93,6 +107,7 @@ export async function POST(req: NextRequest) {
       const foundTpl = await prisma.roleTemplate.findUnique({ where: { name: targetName } });
       if (foundTpl) {
         resolvedRoleTemplateId = foundTpl.id;
+        legacyRole = getLegacyRoleFromTemplateName(foundTpl.name);
       }
     }
 
@@ -184,12 +199,9 @@ export async function PUT(req: NextRequest) {
       updateData.roleTemplateId = roleTemplateId || null;
       if (roleTemplateId) {
         const tpl = await prisma.roleTemplate.findUnique({ where: { id: roleTemplateId } });
-        if (tpl) {
-          if (tpl.name === 'Суперадминистратор') updateData.role = 'ADMIN';
-          else if (tpl.name === 'Менеджер продаж') updateData.role = 'SELLER';
-          else if (tpl.name === 'Ограниченный менеджер') updateData.role = 'MANAGER';
-          else updateData.role = 'CUSTOMER';
-        }
+        updateData.role = getLegacyRoleFromTemplateName(tpl?.name);
+      } else {
+        updateData.role = 'CUSTOMER';
       }
     } else if (role) {
       updateData.role = role;

@@ -1,19 +1,24 @@
 node_modules/
 .next/
 out/
-local-gdrive-mock/
 
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+
+local-gdrive-mock/
+scratch/
 
 *.log
 npm-debug.log*
 yarn-debug.log*
+yarn-error.log*
 pnpm-debug.log*
 
 tsconfig.tsbuildinfo
+
 prisma/dev.db
-scratch/
+prisma/dev.db-journal
+
+.DS_Store
+Thumbs.db

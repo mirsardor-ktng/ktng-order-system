@@ -15,9 +15,22 @@ interface CommentItem {
   createdAt: string;
 }
 
+interface OrderItemSku {
+  id: string;
+  orderItemId: string;
+  productId: string;
+  packs: number;
+  sku: string;
+  name: string;
+  product?: {
+    priority: number;
+  } | null;
+}
+
 interface OrderItem {
   id: string;
   productId: string;
+  groupId?: string | null;
   baseQuantityPacks?: number;
   bonusQuantityPacks?: number;
   totalQuantityPacks?: number;
@@ -38,6 +51,7 @@ interface OrderItem {
     sku: string;
     name: string;
   } | null;
+  skuAllocations?: OrderItemSku[];
 }
 
 interface Order {
@@ -84,7 +98,7 @@ function CustomerOrdersContent() {
   }, []);
 
   // Filter orders by month if query param is set
-  const filteredOrders = filterMonth 
+  const filteredOrders = filterMonth
     ? orders.filter(o => {
         const oDate = new Date(o.createdAt);
         const monthKey = `${oDate.getFullYear()}-${String(oDate.getMonth() + 1).padStart(2, '0')}`;
@@ -92,19 +106,58 @@ function CustomerOrdersContent() {
       })
     : orders;
 
-  // Repeat Previous Order: loads item ratios into localStorage and sends them to catalog
+  // Repeat Previous Order: loads concrete SKU items into localStorage and sends them to catalog
   const handleRepeatOrder = (order: Order) => {
     setRepetitionLoading(order.id);
-    
+
     try {
       const cartPreload: { [productId: string]: number } = {};
+
       order.items.forEach((item) => {
-        cartPreload[item.productId] = item.quantityPacks;
+        // 1. Exclude 100% bonus line items awarded by promotions
+        if (item.isBonus) return;
+
+        // 2. Extract base non-bonus packs
+        const itemBasePacks = item.baseQuantityPacks !== undefined && item.baseQuantityPacks > 0
+          ? item.baseQuantityPacks
+          : Math.max(0, (item.quantityPacks || item.totalQuantityPacks || 0) - (item.bonusQuantityPacks || 0));
+
+        if (itemBasePacks <= 0) return;
+
+        // 3. If item has concrete per-SKU allocation snapshots, restore each SKU's exact base quantity
+        if (item.skuAllocations && item.skuAllocations.length > 0) {
+          // Sort allocations strictly in allocator priority order (lower priority number consumed first)
+          const sortedAllocs = [...item.skuAllocations].sort((a, b) => {
+            const prioA = a.product?.priority ?? 0;
+            const prioB = b.product?.priority ?? 0;
+            if (prioA !== prioB) return prioA - prioB;
+            return a.id.localeCompare(b.id);
+          });
+
+          // OrderItemSku.packs contains total allocated packs (including promotional bonuses).
+          // Since ProductGroupService.allocatePacks fills SKUs sequentially by priority, the base
+          // ordered packs were consumed by the first SKUs, and bonus packs were appended to the tail.
+          // Sequential deduction restores the exact base packs per SKU without any proportional distortion.
+          let remainingBase = itemBasePacks;
+          for (const alloc of sortedAllocs) {
+            if (remainingBase <= 0) break;
+            if (!alloc.productId || alloc.packs <= 0) continue;
+
+            const skuBasePacks = Math.min(alloc.packs, remainingBase);
+            if (skuBasePacks > 0) {
+              cartPreload[alloc.productId] = (cartPreload[alloc.productId] || 0) + skuBasePacks;
+              remainingBase -= skuBasePacks;
+            }
+          }
+        } else if (item.productId) {
+          // 4. Standalone SKU or order without allocation snapshots: use exact Product.id
+          cartPreload[item.productId] = (cartPreload[item.productId] || 0) + itemBasePacks;
+        }
       });
 
       // Write parameters to local storage for main catalog retrieval
       localStorage.setItem('b2b_cart_preload', JSON.stringify(cartPreload));
-      
+
       // Delay slightly for nice UX feel
       setTimeout(() => {
         router.push('/customer');
@@ -185,7 +238,7 @@ function CustomerOrdersContent() {
           </h2>
         </div>
         {filterMonth && (
-          <button 
+          <button
             onClick={() => {
               const cleanUrl = new URL(window.location.href);
               cleanUrl.searchParams.delete('month');
@@ -205,11 +258,11 @@ function CustomerOrdersContent() {
           <History className="h-10 w-10 text-slate-500 mb-4" />
           <h3 className="text-lg font-bold text-slate-300">Заказы не найдены</h3>
           <p className="text-xs text-slate-400 mt-2 max-w-sm">
-            {filterMonth 
-              ? `В месяце ${filterMonth} вы не оформляли заказов.` 
+            {filterMonth
+              ? `В месяце ${filterMonth} вы не оформляли заказов.`
               : 'Вы еще не оформляли заказов сигаретной продукции. Перейдите на витрину товаров, чтобы собрать вашу первую закупку.'}
           </p>
-          <button 
+          <button
             onClick={() => router.push('/customer')}
             className="btn-primary mt-6 px-5 py-2.5 text-xs flex items-center gap-2"
           >
@@ -256,9 +309,9 @@ function CustomerOrdersContent() {
                       const totalBlocks = item.totalQuantityBlocks ?? item.quantityBlocks ?? Math.floor(item.quantityPacks / 10);
                       const name = item.productNameSnapshot || item.product?.name || 'Неизвестно';
                       const sku = item.skuSnapshot || item.product?.sku || 'Неизвестно';
-                      
-                      const quantityLabel = bonusBlocks > 0 
-                        ? `${totalBlocks} бл. (${baseBlocks} оплат. + ${bonusBlocks} бонус)` 
+
+                      const quantityLabel = bonusBlocks > 0
+                        ? `${totalBlocks} бл. (${baseBlocks} оплат. + ${bonusBlocks} бонус)`
                         : breakdownPacks(item.quantityPacks).label;
 
                       return (
@@ -287,7 +340,7 @@ function CustomerOrdersContent() {
                     <MessageSquare className="h-3.5 w-3.5 text-indigo-400" />
                     <span>Комментарии</span>
                   </h4>
-                  
+
                   {order.comments && order.comments.length > 0 ? (
                     <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                       {order.comments.map((comment) => {
@@ -310,7 +363,7 @@ function CustomerOrdersContent() {
                   )}
 
                   <div className="flex gap-2">
-                    <input 
+                    <input
                       type="text"
                       placeholder="Напишите комментарий..."
                       id={`comment-input-${order.id}`}
@@ -380,7 +433,7 @@ function CustomerOrdersContent() {
                         <span>Накладная Excel</span>
                       </a>
                     )}
-                    
+
                     {order.status === 'DRAFT' ? (
                       <button
                         onClick={() => router.push(`/customer?editDraftId=${order.id}`)}

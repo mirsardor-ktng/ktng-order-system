@@ -47,6 +47,9 @@ export function getSession(req: NextRequest): JWTPayload | null {
   return verifyToken(token);
 }
 
+import prisma from './db';
+import { ALL_PERMISSIONS } from './permissions';
+
 /**
  * Checks if a session payload possesses a specific permission (or one of required permissions).
  * Superadmin (role === 'ADMIN' or possessing all/wildcard permissions) is always granted access.
@@ -69,6 +72,45 @@ export function hasPermission(payload: JWTPayload | null, required: string | str
 }
 
 /**
+ * Resolves live effective permissions for a user from database.
+ */
+export async function getEffectivePermissions(userId: string): Promise<{ permissions: string[]; roleName: string; role?: string; defaultDashboard?: string }> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { roleTemplate: true }
+    });
+
+    if (!user || !user.isActive) {
+      return { permissions: [], roleName: 'Пользователь' };
+    }
+
+    const template = user.roleTemplate;
+    const isSuperAdmin = template ? template.name === 'Суперадминистратор' : user.role === 'ADMIN';
+
+    if (isSuperAdmin) {
+      return {
+        permissions: ALL_PERMISSIONS,
+        roleName: 'Суперадминистратор',
+        role: 'ADMIN',
+        defaultDashboard: template?.defaultDashboard || '/admin'
+      };
+    }
+
+    const roleName = template?.name || user.role || 'Пользователь';
+    return {
+      permissions: template?.permissions || [],
+      roleName,
+      role: user.role || 'CUSTOMER',
+      defaultDashboard: template?.defaultDashboard || (user.role === 'SELLER' ? '/seller' : '/customer')
+    };
+  } catch (err) {
+    console.error('Failed to get effective permissions:', err);
+    return { permissions: [], roleName: 'Пользователь' };
+  }
+}
+
+/**
  * Helper to enforce permission in API routes. Throws error if unauthorized.
  */
 export function requirePermission(req: NextRequest, required: string | string[]): JWTPayload {
@@ -82,6 +124,36 @@ export function requirePermission(req: NextRequest, required: string | string[])
   }
 
   return session;
+}
+
+/**
+ * Async version of requirePermission that validates against live DB permissions
+ * if the JWT session token is stale (e.g. rights assigned without re-login).
+ */
+export async function requirePermissionAsync(req: NextRequest, required: string | string[]): Promise<JWTPayload> {
+  const session = getSession(req);
+  if (!session) {
+    throw new Error('Необходима авторизация.');
+  }
+
+  if (hasPermission(session, required)) {
+    return session;
+  }
+
+  // Check live DB effective permissions
+  const effective = await getEffectivePermissions(session.userId);
+  const updatedSession: JWTPayload = {
+    ...session,
+    permissions: effective.permissions,
+    roleName: effective.roleName,
+    role: effective.role || session.role
+  };
+
+  if (!hasPermission(updatedSession, required)) {
+    throw new Error('У вас недостаточно прав для выполнения этого действия.');
+  }
+
+  return updatedSession;
 }
 
 /**

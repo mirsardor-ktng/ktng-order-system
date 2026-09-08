@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { getSession, hasPermission } from '@/lib/auth';
 import { ProductsService } from '@/lib/products/products.service';
 import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
 
@@ -16,9 +16,12 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search') || '';
     const favoritesOnly = searchParams.get('favorites') === 'true';
 
-    const isAdminOrSeller = session.role === 'ADMIN' || session.role === 'SELLER';
+    const canSeeRawProducts = session.role === 'ADMIN' || session.role === 'SELLER' ||
+      hasPermission(session, 'products:manage') ||
+      hasPermission(session, 'products:stock_update') ||
+      hasPermission(session, 'orders:edit');
 
-    if (!isAdminOrSeller) {
+    if (!canSeeRawProducts) {
       const groups = await ProductGroupService.getCatalogGroups({ search, favoritesOnly });
       return NextResponse.json(groups);
     }
