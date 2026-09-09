@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  ShoppingBag, Plus, Edit, Star, Check, AlertCircle, 
+import {
+  ShoppingBag, Plus, Edit, Star, Check, AlertCircle,
   Loader2, X, Trash2, Tag, Layers, RefreshCw
 } from 'lucide-react';
 
@@ -34,7 +34,7 @@ export default function AdminProducts() {
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  
+
   // Active SKU item under modification
   const [activeProduct, setActiveProduct] = useState<ProductItem | null>(null);
 
@@ -48,6 +48,9 @@ export default function AdminProducts() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [deletingImage, setDeletingImage] = useState(false);
+  const [newImageFile, setNewImageFile] = useState<File | null>(null);
+  const [newImagePreview, setNewImagePreview] = useState<string>('');
 
   // Single Delete modal state
   const [productToDelete, setProductToDelete] = useState<ProductItem | null>(null);
@@ -124,7 +127,43 @@ export default function AdminProducts() {
     setIsFavorite(false);
     setIsActive(true);
     setSelectedTagIds([]);
+    if (newImagePreview) {
+      URL.revokeObjectURL(newImagePreview);
+    }
+    setNewImageFile(null);
+    setNewImagePreview('');
     setError('');
+  };
+
+  const handleSelectNewImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Поддерживаются только форматы JPG, PNG и WebP.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Размер изображения не должен превышать 10 MB.');
+      return;
+    }
+
+    if (newImagePreview) {
+      URL.revokeObjectURL(newImagePreview);
+    }
+
+    setNewImageFile(file);
+    setNewImagePreview(URL.createObjectURL(file));
+    setError('');
+  };
+
+  const handleClearNewImage = () => {
+    if (newImagePreview) {
+      URL.revokeObjectURL(newImagePreview);
+    }
+    setNewImageFile(null);
+    setNewImagePreview('');
   };
 
   // Add SKU handler
@@ -135,19 +174,38 @@ export default function AdminProducts() {
     setSuccess('');
 
     try {
-      const res = await fetch('/api/admin/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          sku, 
-          name, 
-          basePrice: Number(basePrice), 
-          stockPacks: stockPacks !== '' ? Number(stockPacks) : 5000,
-          isFavorite, 
-          isActive,
-          tagIds: selectedTagIds
-        }),
-      });
+      let res: Response;
+
+      if (newImageFile) {
+        const formData = new FormData();
+        formData.append('sku', sku);
+        formData.append('name', name);
+        formData.append('basePrice', String(Number(basePrice)));
+        formData.append('stockPacks', String(stockPacks !== '' ? Number(stockPacks) : 5000));
+        formData.append('isFavorite', String(isFavorite));
+        formData.append('isActive', String(isActive));
+        formData.append('tagIds', JSON.stringify(selectedTagIds));
+        formData.append('file', newImageFile);
+
+        res = await fetch('/api/admin/products', {
+          method: 'POST',
+          body: formData,
+        });
+      } else {
+        res = await fetch('/api/admin/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sku,
+            name,
+            basePrice: Number(basePrice),
+            stockPacks: stockPacks !== '' ? Number(stockPacks) : 5000,
+            isFavorite,
+            isActive,
+            tagIds: selectedTagIds
+          }),
+        });
+      }
 
       const data = await res.json();
 
@@ -157,7 +215,7 @@ export default function AdminProducts() {
         clearForm();
         loadProducts();
       } else {
-        setError(data.error);
+        setError(data.error || 'Ошибка при создании товара.');
       }
     } catch (err) {
       setError('Ошибка связи с сервером.');
@@ -189,13 +247,13 @@ export default function AdminProducts() {
 
     const payload = !canManageProducts && canUpdateStock
       ? { id: activeProduct.id, stockPacks: stockPacks !== '' ? Number(stockPacks) : 0 }
-      : { 
-          id: activeProduct.id, 
-          sku, 
-          name, 
-          basePrice: Number(basePrice), 
+      : {
+          id: activeProduct.id,
+          sku,
+          name,
+          basePrice: Number(basePrice),
           stockPacks: stockPacks !== '' ? Number(stockPacks) : 0,
-          isFavorite, 
+          isFavorite,
           isActive,
           tagIds: selectedTagIds
         };
@@ -230,6 +288,16 @@ export default function AdminProducts() {
     const file = e.target.files?.[0];
     if (!file || !activeProduct) return;
 
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Поддерживаются только форматы JPG, PNG и WebP.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Размер изображения не должен превышать 10 MB.');
+      return;
+    }
+
     setUploadingImage(true);
     setError('');
     setSuccess('');
@@ -256,6 +324,32 @@ export default function AdminProducts() {
       setError('Ошибка сети при загрузке изображения.');
     } finally {
       setUploadingImage(false);
+    }
+  };
+
+  // Delete product image handler
+  const handleDeleteImage = async () => {
+    if (!activeProduct || !activeProduct.imageUrl || activeProduct.imageUrl === 'default-pack') return;
+    setDeletingImage(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const res = await fetch(`/api/admin/products/upload-image?productId=${activeProduct.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuccess('Изображение товара удалено.');
+        setActiveProduct(prev => prev ? { ...prev, imageUrl: '' } : null);
+        loadProducts();
+      } else {
+        setError(data.error || 'Не удалось удалить изображение.');
+      }
+    } catch (err) {
+      setError('Ошибка сети при удалении изображения.');
+    } finally {
+      setDeletingImage(false);
     }
   };
 
@@ -505,9 +599,9 @@ export default function AdminProducts() {
                     <td className="py-4 px-6">
                       <div className="w-10 h-10 rounded-lg border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center">
                         {p.imageUrl && p.imageUrl !== 'default-pack' ? (
-                          <img 
-                            src={p.imageUrl} 
-                            alt={p.name} 
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -521,8 +615,8 @@ export default function AdminProducts() {
                       {p.tags && p.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {p.tags.map(t => (
-                            <span 
-                              key={t.id} 
+                            <span
+                              key={t.id}
                               className="text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider"
                               style={{ backgroundColor: `${t.color}20`, color: t.color, border: `1px solid ${t.color}30` }}
                             >
@@ -538,8 +632,8 @@ export default function AdminProducts() {
                       <button
                         onClick={() => handleToggleFavorite(p)}
                         className={`flex h-6 w-6 items-center justify-center rounded-full transition-all ${
-                          p.isFavorite 
-                            ? 'bg-amber-500/10 text-amber-400' 
+                          p.isFavorite
+                            ? 'bg-amber-500/10 text-amber-400'
                             : 'bg-white/5 text-slate-600 hover:text-slate-400'
                         }`}
                       >
@@ -550,8 +644,8 @@ export default function AdminProducts() {
                       <button
                         onClick={() => handleToggleActive(p)}
                         className={`inline-flex px-2 py-0.5 rounded text-[9px] font-extrabold tracking-wider border transition-all ${
-                          p.isActive 
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                          p.isActive
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                             : 'bg-red-500/10 border-red-500/20 text-red-400'
                         }`}
                       >
@@ -626,7 +720,7 @@ export default function AdminProducts() {
       {showBulkPriceModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-fade-in">
           <div className="glass-panel w-full max-w-sm rounded-3xl p-6 relative">
-            <button 
+            <button
               onClick={() => setShowBulkPriceModal(false)}
               className="absolute right-4 top-4 text-slate-400 hover:text-white"
             >
@@ -666,7 +760,7 @@ export default function AdminProducts() {
       {showBulkTagsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-fade-in">
           <div className="glass-panel w-full max-w-md rounded-3xl p-6 relative max-h-[90vh] overflow-y-auto">
-            <button 
+            <button
               onClick={() => setShowBulkTagsModal(false)}
               className="absolute right-4 top-4 text-slate-400 hover:text-white"
             >
@@ -761,7 +855,7 @@ export default function AdminProducts() {
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-fade-in">
           <div className="glass-panel w-full max-w-md rounded-3xl p-6 sm:p-8 relative max-h-[90vh] overflow-y-auto">
-            <button 
+            <button
               onClick={() => setShowAddModal(false)}
               className="absolute right-4 top-4 text-slate-400 hover:text-white"
             >
@@ -868,6 +962,54 @@ export default function AdminProducts() {
                 )}
               </div>
 
+              {/* Cover Image Selector */}
+              <div className="space-y-2 border-t border-white/5 pt-4">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Изображение товара (опционально)</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-xl border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center flex-shrink-0">
+                    {newImagePreview ? (
+                      <img
+                        src={newImagePreview}
+                        alt="Превью"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <ShoppingBag className="w-8 h-8 text-slate-600" />
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        id="add-product-image"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleSelectNewImage}
+                        className="hidden"
+                        disabled={submitting}
+                      />
+                      <label
+                        htmlFor="add-product-image"
+                        className="btn-secondary py-1.5 px-3 text-xs inline-flex items-center gap-1.5 cursor-pointer font-bold border border-white/10 hover:border-white/20 transition-all rounded-lg"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        <span>{newImagePreview ? 'Заменить файл' : 'Выбрать изображение'}</span>
+                      </label>
+                      {newImagePreview && (
+                        <button
+                          type="button"
+                          onClick={handleClearNewImage}
+                          className="text-xs text-red-400 hover:text-red-300 py-1.5 px-2 font-bold flex items-center gap-1 transition-colors"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          <span>Удалить</span>
+                        </button>
+                      )}
+                    </div>
+                    <span className="block text-[10px] text-slate-500">JPG, PNG или WebP до 10 МБ.</span>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-4 pt-2">
                 <label className="flex items-center gap-2 text-xs text-slate-300 font-bold select-none cursor-pointer">
                   <input
@@ -907,7 +1049,7 @@ export default function AdminProducts() {
       {showEditModal && activeProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-fade-in">
           <div className="glass-panel w-full max-w-md rounded-3xl p-6 sm:p-8 relative max-h-[95vh] overflow-y-auto">
-            <button 
+            <button
               onClick={() => { setShowEditModal(false); setActiveProduct(null); }}
               className="absolute right-4 top-4 text-slate-400 hover:text-white"
             >
@@ -1041,41 +1183,63 @@ export default function AdminProducts() {
                     <div className="flex items-center gap-4">
                       <div className="w-16 h-16 rounded-xl border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center flex-shrink-0">
                         {activeProduct.imageUrl && activeProduct.imageUrl !== 'default-pack' ? (
-                          <img 
-                            src={activeProduct.imageUrl} 
-                            alt={activeProduct.name} 
+                          <img
+                            src={activeProduct.imageUrl}
+                            alt={activeProduct.name}
                             className="w-full h-full object-cover"
                           />
                         ) : (
                           <ShoppingBag className="w-8 h-8 text-slate-600" />
                         )}
                       </div>
-                      <div className="flex-1 space-y-1">
-                        <input
-                          type="file"
-                          id="product-image-upload"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="hidden"
-                          disabled={uploadingImage}
-                        />
-                        <label
-                          htmlFor="product-image-upload"
-                          className="btn-secondary py-1.5 px-3 text-xs inline-flex items-center gap-1.5 cursor-pointer font-bold border border-white/10 hover:border-white/20 transition-all rounded-lg"
-                        >
-                          {uploadingImage ? (
-                            <>
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              <span>Загрузка...</span>
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className="h-3 w-3" />
-                              <span>Загрузить изображение</span>
-                            </>
+                      <div className="flex-1 space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <input
+                            type="file"
+                            id="product-image-upload"
+                            accept="image/jpeg,image/png,image/webp"
+                            onChange={handleImageUpload}
+                            className="hidden"
+                            disabled={uploadingImage || deletingImage}
+                          />
+                          <label
+                            htmlFor="product-image-upload"
+                            className="btn-secondary py-1.5 px-3 text-xs inline-flex items-center gap-1.5 cursor-pointer font-bold border border-white/10 hover:border-white/20 transition-all rounded-lg"
+                          >
+                            {uploadingImage ? (
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span>Загрузка...</span>
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="h-3 w-3" />
+                                <span>{activeProduct.imageUrl && activeProduct.imageUrl !== 'default-pack' ? 'Заменить изображение' : 'Загрузить изображение'}</span>
+                              </>
+                            )}
+                          </label>
+                          {activeProduct.imageUrl && activeProduct.imageUrl !== 'default-pack' && (
+                            <button
+                              type="button"
+                              onClick={handleDeleteImage}
+                              disabled={uploadingImage || deletingImage}
+                              className="text-xs text-red-400 hover:text-red-300 py-1.5 px-2.5 font-bold flex items-center gap-1.5 transition-colors border border-red-500/20 hover:border-red-500/40 rounded-lg bg-red-500/10"
+                            >
+                              {deletingImage ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  <span>Удаление...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 className="h-3 w-3" />
+                                  <span>Удалить фото</span>
+                                </>
+                              )}
+                            </button>
                           )}
-                        </label>
-                        <span className="block text-[10px] text-slate-500">Допустимо: PNG, JPG, WebP. До 5 МБ.</span>
+                        </div>
+                        <span className="block text-[10px] text-slate-500">Допустимо: PNG, JPG, WebP. До 10 МБ.</span>
                       </div>
                     </div>
                   </div>
