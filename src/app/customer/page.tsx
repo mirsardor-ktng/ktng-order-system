@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Star, Layers, Package, Grid, Plus, Minus, FileText, Check, AlertCircle, ShoppingCart, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { UnitMode, packsToUnit, unitToPacks, breakdownPacks } from '@/lib/conversion';
@@ -141,7 +141,10 @@ export default function CustomerCatalog() {
   const [activeDraftNumber, setActiveDraftNumber] = useState<string | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
 
-  // Real-time calculation effect via Promotion Engine API
+  // Request sequence counter for stale response protection
+  const calculateSeqRef = useRef<number>(0);
+
+  // Real-time calculation effect via Promotion Engine API (Debounced 350ms + AbortController)
   useEffect(() => {
     const items = Object.keys(cart)
       .filter(pId => (cart[pId] || 0) > 0)
@@ -159,21 +162,33 @@ export default function CustomerCatalog() {
       return;
     }
 
-    let isMounted = true;
-    fetch('/api/orders/calculate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items })
-    })
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (isMounted && data) {
-          setCalculatedOrder(data);
-        }
-      })
-      .catch(err => console.error('Failed to calculate promotions:', err));
+    const currentSeq = ++calculateSeqRef.current;
+    const controller = new AbortController();
 
-    return () => { isMounted = false; };
+    const timeoutId = setTimeout(() => {
+      fetch('/api/orders/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+        signal: controller.signal
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (calculateSeqRef.current === currentSeq && data) {
+            setCalculatedOrder(data);
+          }
+        })
+        .catch(err => {
+          if (err.name !== 'AbortError') {
+            console.error('Failed to calculate promotions:', err);
+          }
+        });
+    }, 350);
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [cart, products]);
 
   // Fetch product catalog on mount
@@ -573,6 +588,29 @@ export default function CustomerCatalog() {
     );
   }
 
+  // Memoized O(1) lookup map for calculated promotion order items
+  const calculatedItemMap = useMemo(() => {
+    const map = new Map<string, any>();
+    if (!calculatedOrder?.items || calculatedOrder.items.length === 0) return map;
+
+    for (const item of calculatedOrder.items) {
+      if (item.productId && !map.has(item.productId)) {
+        map.set(item.productId, item);
+      }
+      if (item.groupId && !map.has(item.groupId)) {
+        map.set(item.groupId, item);
+      }
+      if (item.skuAllocations && Array.isArray(item.skuAllocations)) {
+        for (const alloc of item.skuAllocations) {
+          if (alloc.productId && !map.has(alloc.productId)) {
+            map.set(alloc.productId, item);
+          }
+        }
+      }
+    }
+    return map;
+  }, [calculatedOrder]);
+
   return (
     <div className="space-y-6 animate-fade-in pb-28">
       {/* ── CUSTOMER KPI DASHBOARD ── */}
@@ -797,11 +835,19 @@ export default function CustomerCatalog() {
             const uiQuantity = packsToUnit(quantityInPacks, unitMode);
             const inCart = quantityInPacks > 0;
             const isOutOfStock = prod.stockPacks <= 0;
-            const calcItem = calculatedOrder?.items?.find((i: any) =>
-              i.productId === prod.id ||
-              (prod.groupId && (i.groupId === prod.groupId || i.productId === prod.groupId)) ||
-              (prod.skus?.some(s => s.id === i.productId))
-            );
+            let calcItem = calculatedItemMap.get(prod.id);
+            if (!calcItem && prod.groupId) {
+              calcItem = calculatedItemMap.get(prod.groupId);
+            }
+            if (!calcItem && prod.skus) {
+              for (const s of prod.skus) {
+                const found = calculatedItemMap.get(s.id);
+                if (found) {
+                  calcItem = found;
+                  break;
+                }
+              }
+            }
 
             // Price according to the selected UnitMode and SKU price variation
             const activeSkus = prod.skus && prod.skus.length > 0 ? prod.skus.filter(s => s.isActive) : [];

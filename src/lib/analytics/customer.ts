@@ -12,7 +12,7 @@ export interface CustomerInsights {
   casesThisMonth: number;
 }
 
-export function calculateCustomerInsights(customerOrders: any[], allSystemOrders: any[]): CustomerInsights {
+export function calculateCustomerInsights(customerOrders: any[], allSystemOrders?: any[]): CustomerInsights {
   const totalOrders = customerOrders.length;
   
   // 1. All-time, Year, Month Boxes Stats
@@ -75,8 +75,8 @@ export function calculateCustomerInsights(customerOrders: any[], allSystemOrders
 
   const favoriteProductShare = totalPacksBought > 0 ? Math.round((favoriteProductPacks / totalPacksBought) * 100) : 0;
 
-  // 5. System-wide top growing product MoM
-  const topSystemGrowingProduct = calculateTopGrowingProduct(allSystemOrders);
+  // 5. Top growing product MoM (computed from customer's orders, or system orders if provided)
+  const topSystemGrowingProduct = calculateTopGrowingProduct(allSystemOrders || customerOrders);
 
   // 6. Average Check Trend (Current Month vs Previous Month)
   let averageCheckTrend: 'UP' | 'DOWN' | 'EQUAL' = 'EQUAL';

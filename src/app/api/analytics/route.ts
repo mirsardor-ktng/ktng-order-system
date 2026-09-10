@@ -5,6 +5,7 @@ import { AnalyticsService } from '@/lib/analytics';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const start = performance.now();
   try {
     const session = getSession(req);
 
@@ -19,6 +20,9 @@ export async function GET(req: NextRequest) {
     const month = searchParams.get('month'); // e.g. "2026-06"
 
     const data = await AnalyticsService.getAnalyticsData(session as any, month);
+
+    const durationMs = Math.round(performance.now() - start);
+    console.log(`[PERF] GET /api/analytics durationMs: ${durationMs}`);
 
     return NextResponse.json(data);
   } catch (error: any) {

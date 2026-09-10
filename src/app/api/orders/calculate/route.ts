@@ -5,6 +5,7 @@ import { PromotionsService } from '@/lib/promotions/promotions.service';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  const start = performance.now();
   try {
     const session = getSession(req);
     const body = await req.json();
@@ -28,6 +29,9 @@ export async function POST(req: NextRequest) {
     }));
 
     const calculatedOrder = await PromotionsService.calculateOrder(formattedInput, effectiveCompanyId);
+
+    const durationMs = Math.round(performance.now() - start);
+    console.log(`[PERF] POST /api/orders/calculate durationMs: ${durationMs}`);
 
     return NextResponse.json(calculatedOrder);
   } catch (error: any) {

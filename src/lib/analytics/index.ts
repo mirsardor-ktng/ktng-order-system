@@ -39,13 +39,25 @@ export class AnalyticsService {
         orderBy: { createdAt: 'asc' }
       });
 
-      // 2. Fetch all system orders to calculate system-wide top growing product
+      // 2. Fetch system-wide orders (optimized select) to calculate top growing product across all clients
       const allSystemOrders = await prisma.order.findMany({
         where: {
           status: { in: VALID_STATUSES }
         },
-        include: {
-          items: { include: { product: true } }
+        select: {
+          createdAt: true,
+          items: {
+            select: {
+              productId: true,
+              productNameSnapshot: true,
+              itemTotalPrice: true,
+              quantityPacks: true,
+              price: true,
+              product: {
+                select: { name: true }
+              }
+            }
+          }
         },
         orderBy: { createdAt: 'asc' }
       });

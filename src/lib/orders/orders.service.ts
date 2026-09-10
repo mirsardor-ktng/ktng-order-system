@@ -76,19 +76,44 @@ export class OrdersService {
    * POST: Creates a new order (DRAFT or NEW)
    */
   static async createOrder(session: JWTPayload, data: { items: any[]; status: string }, req?: NextRequest) {
+    const totalStart = performance.now();
     const { items, status } = data;
     const orderStatus = status === 'DRAFT' ? 'DRAFT' : 'NEW';
 
     const customer = await prisma.user.findUnique({ where: { id: session.userId } });
     if (!customer) throw new Error('Клиент не найден.');
 
-    // Load all groups (with their SKUs) and standalone products
+    // Constrain product and group queries to only items in this order
+    const requestedProductIds = Array.from(new Set(
+      items.map(i => i.productId || i.id).filter(Boolean) as string[]
+    ));
+    const requestedGroupIds = Array.from(new Set(
+      items.map(i => i.groupId || i.id).filter(Boolean) as string[]
+    ));
+
+    // Load only groups matching the requested IDs or containing any requested child SKU
     const allGroups = await prisma.productGroup.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        OR: [
+          { id: { in: requestedGroupIds } },
+          { skus: { some: { id: { in: requestedProductIds } } } }
+        ]
+      },
       include: { skus: { where: { isActive: true }, orderBy: { priority: 'asc' } } }
     });
     const groupMap = new Map(allGroups.map(g => [g.id, g]));
-    const dbProducts = await prisma.product.findMany({ where: { isActive: true } });
+
+    // Collect all relevant product IDs (requested directly + child SKUs of relevant groups)
+    const groupSkuIds = allGroups.flatMap(g => g.skus.map(s => s.id));
+    const relevantProductIds = Array.from(new Set([...requestedProductIds, ...groupSkuIds]));
+
+    const dbProducts = await prisma.product.findMany({
+      where: {
+        id: { in: relevantProductIds },
+        isActive: true
+      }
+    });
     const productMap = new Map(dbProducts.map(p => [p.id, p]));
 
     const rawItems: any[] = [];
@@ -190,10 +215,14 @@ export class OrdersService {
     const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
     const orderNumber = `ORD-${dateStr}-${timeStr}-${Math.floor(100 + Math.random() * 900)}`;
 
+    const validationMs = Math.round(performance.now() - totalStart);
+
     let orderFileUrl = null;
     let fileId = null;
     let fileName = null;
     let fileUploadMsg = '';
+    let excelMs = 0;
+    let storageMs = 0;
 
     if (orderStatus === 'NEW') {
       const uploadResult = await this.compileAndUploadExcel(orderNumber, customer.name, promoResult.items, {
@@ -205,8 +234,11 @@ export class OrdersService {
       fileId = uploadResult.fileId;
       fileName = uploadResult.fileName;
       fileUploadMsg = uploadResult.message;
+      excelMs = uploadResult.excelMs || 0;
+      storageMs = uploadResult.storageMs || 0;
     }
 
+    const txStart = performance.now();
     const savedOrder = await prisma.$transaction(async (tx) => {
       if (orderStatus === 'NEW') {
         // Consolidate stock decrements per unique SKU to minimize queries and prevent race conditions
@@ -326,6 +358,7 @@ export class OrdersService {
       timeout: 20000,
       maxWait: 10000
     });
+    const transactionMs = Math.round(performance.now() - txStart);
 
     const diff = AuditService.formatItemsDiff([], promoResult.items.map(i => ({ name: i.name, quantity: i.totalQuantityPacks })));
     await AuditService.log({
@@ -335,6 +368,9 @@ export class OrdersService {
       newValue: diff.newValue,
       req
     });
+
+    const totalMs = Math.round(performance.now() - totalStart);
+    console.log(`[PERF] OrdersService.createOrder validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
 
     return {
       order: savedOrder,
@@ -348,6 +384,7 @@ export class OrdersService {
    * PUT: Updates an existing DRAFT or NEW order (editing items).
    */
   static async updateOrder(session: JWTPayload, data: { orderId: string; items: any[]; status: string }, req?: NextRequest) {
+    const totalStart = performance.now();
     const { orderId, items, status } = data;
     const orderStatus = status === 'NEW' ? 'NEW' : 'DRAFT';
 
@@ -385,13 +422,42 @@ export class OrdersService {
       throw new Error(`Редактирование заказа запрещено в статусе: ${existingOrder.status}.`);
     }
 
-    // Load all groups & products for updateOrder path
+    // Load existing SKU allocations for stock restore/checks
+    const oldItemSkus = await prisma.orderItemSku.findMany({
+      where: { orderItem: { orderId } }
+    });
+
+    // Constrain product and group queries to only relevant IDs for this update
+    const requestedProductIds = Array.from(new Set([
+      ...items.map(i => i.productId || i.id).filter(Boolean),
+      ...existingOrder.items.map(i => i.productId).filter(Boolean),
+      ...oldItemSkus.map(s => s.productId).filter(Boolean)
+    ] as string[]));
+
+    const requestedGroupIds = Array.from(new Set([
+      ...items.map(i => i.groupId || i.id).filter(Boolean),
+      ...existingOrder.items.map(i => (i.product as any)?.groupId).filter(Boolean)
+    ] as string[]));
+
     const allGroups = await prisma.productGroup.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        OR: [
+          { id: { in: requestedGroupIds } },
+          { skus: { some: { id: { in: requestedProductIds } } } }
+        ]
+      },
       include: { skus: { where: { isActive: true }, orderBy: { priority: 'asc' } } }
     });
     const groupMap = new Map(allGroups.map(g => [g.id, g]));
-    const dbProducts = await prisma.product.findMany();
+
+    // Collect all relevant product IDs (requested directly + child SKUs of relevant groups)
+    const groupSkuIds = allGroups.flatMap(g => g.skus.map(s => s.id));
+    const relevantProductIds = Array.from(new Set([...requestedProductIds, ...groupSkuIds]));
+
+    const dbProducts = await prisma.product.findMany({
+      where: { id: { in: relevantProductIds } }
+    });
     const productMap = new Map(dbProducts.map(p => [p.id, p]));
 
     const rawItems: any[] = [];
@@ -528,9 +594,6 @@ export class OrdersService {
     // Compute SKU allocations for updateOrder
     const itemAllocations = new Map<string, SkuAllocation[]>();
     if (orderStatus === 'NEW') {
-      const oldItemSkus = await prisma.orderItemSku.findMany({
-        where: { orderItem: { orderId } }
-      });
       const tempStockMap = new Map<string, number>();
       for (const p of dbProducts) tempStockMap.set(p.id, p.stockPacks);
       if (existingOrder.status === 'NEW') {
@@ -561,11 +624,15 @@ export class OrdersService {
       }
     }
 
+    const validationMs = Math.round(performance.now() - totalStart);
+
     const now = new Date();
     let orderFileUrl = existingOrder.fileUrl;
     let fileId = existingOrder.fileId;
     let fileName = existingOrder.fileName;
     let fileUploadMsg = '';
+    let excelMs = 0;
+    let storageMs = 0;
 
     if (orderStatus === 'NEW') {
       const uploadResult = await this.compileAndUploadExcel(existingOrder.orderNumber, existingOrder.customer.name, processedItems, {
@@ -577,8 +644,11 @@ export class OrdersService {
       fileId = uploadResult.fileId;
       fileName = uploadResult.fileName;
       fileUploadMsg = uploadResult.message;
+      excelMs = uploadResult.excelMs || 0;
+      storageMs = uploadResult.storageMs || 0;
     }
 
+    const txStart = performance.now();
     const updatedOrder = await prisma.$transaction(async (tx) => {
       // Restore old stock from per-SKU allocation records
       if (existingOrder.status === 'NEW') {
@@ -731,6 +801,7 @@ export class OrdersService {
       timeout: 20000,
       maxWait: 10000
     });
+    const transactionMs = Math.round(performance.now() - txStart);
 
     const oldFormat = existingOrder.items.map(i => ({ name: i.productNameSnapshot || i.product?.name || 'Неизвестно', quantity: i.totalQuantityPacks ?? i.quantityPacks }));
     const newFormat = processedItems.map(i => ({ name: i.name, quantity: i.totalQuantityPacks }));
@@ -750,6 +821,9 @@ export class OrdersService {
       newValue: diff.newValue,
       req
     });
+
+    const totalMs = Math.round(performance.now() - totalStart);
+    console.log(`[PERF] OrdersService.updateOrder validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
 
     return {
       order: updatedOrder,
@@ -977,7 +1051,9 @@ export class OrdersService {
       items: excelItems
     };
 
+    const excelStart = performance.now();
     const compiledExcelBuffer = await generateExcelOrder(templateBuffer, excelOrderData);
+    const excelMs = Math.round(performance.now() - excelStart);
 
     const now = new Date();
     const year = now.getFullYear();
@@ -988,19 +1064,23 @@ export class OrdersService {
     const sanitizedClient = clientName.replace(/[^a-zA-Z0-9а-яА-Я_-]/g, '');
     const excelFileName = `${year}-${month}-${day}_${hour}-${min}_${sanitizedClient}.xlsx`;
 
+    const storageStart = performance.now();
     const uploadResult = await storageService.uploadFile(
       excelFileName,
       compiledExcelBuffer,
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Orders'
     );
+    const storageMs = Math.round(performance.now() - storageStart);
 
     return {
       fileUrl: `/api/orders/download?fileId=${uploadResult.fileId}` +
       `&fileName=${encodeURIComponent(excelFileName)}`,
       fileId: uploadResult.fileId,
       fileName: excelFileName,
-      message: uploadResult.message
+      message: uploadResult.message,
+      excelMs,
+      storageMs
     };
   }
 }

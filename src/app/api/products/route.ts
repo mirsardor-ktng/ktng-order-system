@@ -6,6 +6,7 @@ import { ProductGroupService } from '@/lib/product-groups/product-groups.service
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const start = performance.now();
   try {
     const session = getSession(req);
     if (!session) {
@@ -23,10 +24,14 @@ export async function GET(req: NextRequest) {
 
     if (!canSeeRawProducts) {
       const groups = await ProductGroupService.getCatalogGroups({ search, favoritesOnly });
+      const durationMs = Math.round(performance.now() - start);
+      console.log(`[PERF] GET /api/products durationMs: ${durationMs}`);
       return NextResponse.json(groups);
     }
 
     const products = await ProductsService.getProducts({ search, favoritesOnly });
+    const durationMs = Math.round(performance.now() - start);
+    console.log(`[PERF] GET /api/products durationMs: ${durationMs}`);
     return NextResponse.json(products);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
