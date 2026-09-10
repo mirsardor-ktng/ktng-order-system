@@ -791,7 +791,7 @@ export default function CustomerCatalog() {
           <p className="text-xs text-slate-400 mt-2">Попробуйте ввести другой поисковый запрос или сбросить фильтры.</p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
           {filteredProducts.map((prod) => {
             const quantityInPacks = getProductCartPacks(prod, cart);
             const uiQuantity = packsToUnit(quantityInPacks, unitMode);
@@ -846,56 +846,56 @@ export default function CustomerCatalog() {
             return (
               <div
                 key={prod.id}
-                className={`glass-card rounded-2xl p-4 flex flex-col justify-between transition-all ${
+                className={`glass-card rounded-2xl p-3 sm:p-4 flex flex-col justify-between transition-all ${
                   inCart ? 'border-primary/45 shadow-glow-primary bg-indigo-950/5' : ''
                 } ${isOutOfStock ? 'opacity-60' : ''}`}
               >
                 <div>
                   {/* Card Header */}
-                  <div className="flex justify-between items-start gap-2 mb-2">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-slate-855 text-slate-300 tracking-wider">
+                  <div className="flex justify-between items-start gap-1.5 mb-2">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold px-1.5 sm:px-2 py-0.5 rounded bg-slate-800 text-slate-300 tracking-wider">
                         {prod.sku}
                       </span>
                       {calcItem && calcItem.bonusQuantityPacks > 0 && (
-                        <span className="flex items-center gap-1 text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 shadow-glow-sm">
-                          🎁 +{calcItem.bonusQuantityBlocks} бл. бонус
+                        <span className="flex items-center gap-1 text-[8px] sm:text-[9px] font-extrabold px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 shadow-glow-sm">
+                          🎁 +{calcItem.bonusQuantityBlocks} бл.
                         </span>
                       )}
                     </div>
                     {prod.isFavorite && (
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/10 text-amber-400">
-                        <Star className="h-3.5 w-3.5 fill-amber-400" />
+                      <span className="flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 shrink-0">
+                        <Star className="h-3 w-3 sm:h-3.5 sm:w-3.5 fill-amber-400" />
                       </span>
                     )}
                   </div>
 
-                  {/* Cigarette Cover Image */}
-                  <div className="h-32 w-full rounded-xl bg-gradient-to-b from-slate-800/40 to-slate-900/60 flex items-center justify-center mb-3 relative overflow-hidden border border-white/5">
+                  {/* Cigarette Cover Image - 4:5 vertical proportion with object-contain */}
+                  <div className="relative aspect-[4/5] w-full rounded-xl bg-gradient-to-b from-slate-800/40 to-slate-900/60 flex items-center justify-center mb-2.5 sm:mb-3 overflow-hidden border border-white/5 p-1.5 sm:p-2">
                     {prod.imageUrl && prod.imageUrl !== 'default-pack' ? (
                       <img
                         src={prod.imageUrl}
                         alt={prod.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain drop-shadow-md"
                       />
                     ) : (
                       <>
-                        <div className={`absolute top-0 left-0 w-2.5 h-full ${
+                        <div className={`absolute top-0 left-0 w-2 sm:w-2.5 h-full ${
                           prod.name.includes('Parliament') ? 'bg-blue-600' :
                           prod.name.includes('Marlboro') ? 'bg-red-600' :
                           prod.name.includes('Sobranie') ? 'bg-yellow-600' : 'bg-emerald-600'
                         }`} />
-                        <div className="flex flex-col items-center">
-                          <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest leading-none">CIGARETTES</span>
-                          <span className="font-extrabold text-sm text-slate-200 mt-1.5 select-none">{prod.name.split(' ')[0]}</span>
-                          <span className="text-[9px] text-slate-400 select-none mt-1">{prod.name.split(' ').slice(1).join(' ')}</span>
+                        <div className="flex flex-col items-center p-2 text-center">
+                          <span className="text-[9px] sm:text-[10px] text-slate-500 font-extrabold uppercase tracking-widest leading-none">CIGARETTES</span>
+                          <span className="font-extrabold text-xs sm:text-sm text-slate-200 mt-1.5 select-none leading-tight">{prod.name.split(' ')[0]}</span>
+                          <span className="text-[8px] sm:text-[9px] text-slate-400 select-none mt-1 line-clamp-1">{prod.name.split(' ').slice(1).join(' ')}</span>
                         </div>
                       </>
                     )}
 
                     {isOutOfStock && (
-                      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center">
-                        <span className="text-red-400 font-extrabold text-xs uppercase tracking-wider px-3 py-1 border border-red-500/20 rounded bg-red-500/10">
+                      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 text-center">
+                        <span className="text-red-400 font-extrabold text-[10px] sm:text-xs uppercase tracking-wider px-2 sm:px-3 py-1 border border-red-500/20 rounded bg-red-500/10">
                           Нет в наличии
                         </span>
                       </div>
@@ -903,15 +903,15 @@ export default function CustomerCatalog() {
                   </div>
 
                   {/* SKU Name */}
-                  <h4 className="font-bold text-slate-200 text-sm tracking-tight line-clamp-1">{prod.name}</h4>
+                  <h4 className="font-bold text-slate-200 text-xs sm:text-sm tracking-tight line-clamp-1" title={prod.name}>{prod.name}</h4>
 
                   {/* Card Tags list */}
                   {prod.tags && prod.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1 mb-2">
-                      {prod.tags.map(t => (
+                      {prod.tags.slice(0, 3).map(t => (
                         <span
                           key={t.id}
-                          className="text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider"
+                          className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider"
                           style={{ backgroundColor: `${t.color}20`, color: t.color, border: `1px solid ${t.color}30` }}
                         >
                           {t.name}
@@ -921,9 +921,9 @@ export default function CustomerCatalog() {
                   )}
 
                   {/* Price display per units (so'm currency) */}
-                  <div className="flex justify-between items-baseline mt-2 mb-4">
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Цена за {unitName}:</span>
-                    <span className="font-bold text-sm text-slate-100">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline gap-0.5 mt-1.5 mb-2.5 sm:mb-4">
+                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Цена за {unitName}:</span>
+                    <span className="font-bold text-xs sm:text-sm text-slate-100">
                       {hasPriceRange ? `от ${displayPrice.toLocaleString()}` : displayPrice.toLocaleString()} so'm
                     </span>
                   </div>
@@ -935,14 +935,14 @@ export default function CustomerCatalog() {
                     <button
                       onClick={() => handleDecrement(prod.id)}
                       disabled={isOutOfStock}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
-                      <Minus className="h-3.5 w-3.5" />
+                      <Minus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                     </button>
 
                     <input
                       type="text"
-                      className="flex-1 w-full text-center bg-transparent border-0 text-slate-100 text-xs font-bold focus:outline-none disabled:opacity-30"
+                      className="flex-1 w-full min-w-0 text-center bg-transparent border-0 text-slate-100 text-xs font-bold focus:outline-none disabled:opacity-30"
                       value={uiQuantity || ''}
                       onChange={(e) => handleInputChange(prod.id, e.target.value)}
                       placeholder="0"
@@ -952,9 +952,9 @@ export default function CustomerCatalog() {
                     <button
                       onClick={() => handleIncrement(prod.id)}
                       disabled={isOutOfStock}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
-                      <Plus className="h-3.5 w-3.5" />
+                      <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                     </button>
                   </div>
 

@@ -864,12 +864,12 @@ export default function SellerDashboard() {
                       return (
                         <tr key={p.id} className="hover:bg-white/5 transition-all text-slate-300">
                           <td className="py-4 px-6">
-                            <div className="w-9 h-9 rounded-lg border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center">
+                            <div className="w-10 aspect-[4/5] rounded-lg border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center p-0.5">
                               {p.imageUrl && p.imageUrl !== 'default-pack' ? (
                                 <img 
                                   src={p.imageUrl} 
                                   alt={p.name} 
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full object-contain"
                                 />
                               ) : (
                                 <ShoppingBag className="w-4 h-4 text-slate-600" />

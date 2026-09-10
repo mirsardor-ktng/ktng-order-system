@@ -472,7 +472,7 @@ export default function PromotionsPage() {
                       <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Товар-источник</div>
                       {promo.sourceProduct ? (
                         <div className="flex items-center gap-2">
-                          <img src={promo.sourceProduct.imageUrl} alt="" className="w-8 h-8 rounded-lg object-cover bg-slate-800" />
+                          <img src={promo.sourceProduct.imageUrl} alt="" className="w-8 aspect-[4/5] rounded-lg object-contain bg-slate-800 p-0.5" />
                           <div>
                             <div className="text-xs font-semibold text-white">{promo.sourceProduct.name}</div>
                             <div className="text-[10px] text-slate-400">{promo.sourceProduct.sku} · {formatNumber(promo.sourceProduct.basePrice)} сум</div>
@@ -488,7 +488,7 @@ export default function PromotionsPage() {
                       <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Бонусный товар</div>
                       {promo.bonusProduct ? (
                         <div className="flex items-center gap-2">
-                          <img src={promo.bonusProduct.imageUrl} alt="" className="w-8 h-8 rounded-lg object-cover bg-slate-800" />
+                          <img src={promo.bonusProduct.imageUrl} alt="" className="w-8 aspect-[4/5] rounded-lg object-contain bg-slate-800 p-0.5" />
                           <div>
                             <div className="text-xs font-semibold text-white">{promo.bonusProduct.name}</div>
                             <div className="text-[10px] text-slate-400">{promo.bonusProduct.sku} · {formatNumber(promo.bonusProduct.basePrice)} сум</div>
@@ -696,7 +696,7 @@ export default function PromotionsPage() {
                       />
                       {selectedSourceProduct && (
                         <div className="mt-1 flex items-center gap-2 px-2 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                          <img src={selectedSourceProduct.imageUrl} alt="" className="w-5 h-5 rounded object-cover" />
+                          <img src={selectedSourceProduct.imageUrl} alt="" className="w-5 aspect-[4/5] rounded object-contain" />
                           <span className="text-[10px] font-semibold text-indigo-300">{selectedSourceProduct.sku} — {selectedSourceProduct.name}</span>
                           <button type="button" onClick={() => { setForm(f => ({ ...f, sourceProductId: '' })); setSourceSearch(''); }} className="ml-auto">
                             <X className="h-3 w-3 text-indigo-400" />
@@ -717,7 +717,7 @@ export default function PromotionsPage() {
                             }}
                             className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-white/5 transition-colors"
                           >
-                            <img src={p.imageUrl} alt="" className="w-6 h-6 rounded object-cover bg-slate-700" />
+                            <img src={p.imageUrl} alt="" className="w-6 aspect-[4/5] rounded object-contain bg-slate-700 p-0.5" />
                             <div className="flex-1 min-w-0">
                               <div className="text-xs text-white truncate">{p.name}</div>
                               <div className="text-[10px] text-slate-400">{p.sku} · {formatNumber(p.basePrice)} сум</div>
@@ -745,7 +745,7 @@ export default function PromotionsPage() {
                         />
                         {selectedBonusProduct && (
                           <div className="mt-1 flex items-center gap-2 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                            <img src={selectedBonusProduct.imageUrl} alt="" className="w-5 h-5 rounded object-cover" />
+                            <img src={selectedBonusProduct.imageUrl} alt="" className="w-5 aspect-[4/5] rounded object-contain" />
                             <span className="text-[10px] font-semibold text-amber-300">{selectedBonusProduct.sku} — {selectedBonusProduct.name}</span>
                             <button type="button" onClick={() => { setForm(f => ({ ...f, bonusProductId: '' })); setBonusSearch(''); }} className="ml-auto">
                               <X className="h-3 w-3 text-amber-400" />
@@ -766,7 +766,7 @@ export default function PromotionsPage() {
                               }}
                               className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-white/5 transition-colors"
                             >
-                              <img src={p.imageUrl} alt="" className="w-6 h-6 rounded object-cover bg-slate-700" />
+                              <img src={p.imageUrl} alt="" className="w-6 aspect-[4/5] rounded object-contain bg-slate-700 p-0.5" />
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs text-white truncate">{p.name}</div>
                                 <div className="text-[10px] text-slate-400">{p.sku} · {formatNumber(p.basePrice)} сум</div>

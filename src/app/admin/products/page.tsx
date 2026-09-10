@@ -597,15 +597,15 @@ export default function AdminProducts() {
                       />
                     </td>
                     <td className="py-4 px-6">
-                      <div className="w-10 h-10 rounded-lg border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center">
+                      <div className="w-10 aspect-[4/5] rounded-lg border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center p-0.5">
                         {p.imageUrl && p.imageUrl !== 'default-pack' ? (
                           <img
                             src={p.imageUrl}
                             alt={p.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain"
                           />
                         ) : (
-                          <ShoppingBag className="w-5 h-5 text-slate-600" />
+                          <ShoppingBag className="w-4 h-4 text-slate-600" />
                         )}
                       </div>
                     </td>
@@ -966,15 +966,15 @@ export default function AdminProducts() {
               <div className="space-y-2 border-t border-white/5 pt-4">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Изображение товара (опционально)</label>
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-xl border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center flex-shrink-0">
+                  <div className="w-20 aspect-[4/5] rounded-xl border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center flex-shrink-0 p-1">
                     {newImagePreview ? (
                       <img
                         src={newImagePreview}
                         alt="Превью"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
                     ) : (
-                      <ShoppingBag className="w-8 h-8 text-slate-600" />
+                      <ShoppingBag className="w-7 h-7 text-slate-600" />
                     )}
                   </div>
                   <div className="flex-1 space-y-1.5">
@@ -1181,15 +1181,15 @@ export default function AdminProducts() {
                   <div className="space-y-2 border-t border-white/5 pt-4">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Обложка товара</label>
                     <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-xl border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center flex-shrink-0">
+                      <div className="w-20 aspect-[4/5] rounded-xl border border-white/5 bg-slate-950/40 overflow-hidden flex items-center justify-center flex-shrink-0 p-1">
                         {activeProduct.imageUrl && activeProduct.imageUrl !== 'default-pack' ? (
                           <img
                             src={activeProduct.imageUrl}
                             alt={activeProduct.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain"
                           />
                         ) : (
-                          <ShoppingBag className="w-8 h-8 text-slate-600" />
+                          <ShoppingBag className="w-7 h-7 text-slate-600" />
                         )}
                       </div>
                       <div className="flex-1 space-y-1.5">
