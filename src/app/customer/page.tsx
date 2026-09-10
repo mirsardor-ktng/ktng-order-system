@@ -380,6 +380,29 @@ export default function CustomerCatalog() {
     };
   }, [cart, products]);
 
+  // Memoized O(1) lookup map for calculated promotion order items
+  const calculatedItemMap = useMemo(() => {
+    const map = new Map<string, any>();
+    if (!calculatedOrder?.items || calculatedOrder.items.length === 0) return map;
+
+    for (const item of calculatedOrder.items) {
+      if (item.productId && !map.has(item.productId)) {
+        map.set(item.productId, item);
+      }
+      if (item.groupId && !map.has(item.groupId)) {
+        map.set(item.groupId, item);
+      }
+      if (item.skuAllocations && Array.isArray(item.skuAllocations)) {
+        for (const alloc of item.skuAllocations) {
+          if (alloc.productId && !map.has(alloc.productId)) {
+            map.set(alloc.productId, item);
+          }
+        }
+      }
+    }
+    return map;
+  }, [calculatedOrder]);
+
   // Increments cart item (Stock Capped, Allocates across SKUs in priority order)
   const handleIncrement = (targetId: string) => {
     const prod = products.find(p => p.id === targetId || p.skus?.some(s => s.id === targetId));
@@ -587,29 +610,6 @@ export default function CustomerCatalog() {
       </div>
     );
   }
-
-  // Memoized O(1) lookup map for calculated promotion order items
-  const calculatedItemMap = useMemo(() => {
-    const map = new Map<string, any>();
-    if (!calculatedOrder?.items || calculatedOrder.items.length === 0) return map;
-
-    for (const item of calculatedOrder.items) {
-      if (item.productId && !map.has(item.productId)) {
-        map.set(item.productId, item);
-      }
-      if (item.groupId && !map.has(item.groupId)) {
-        map.set(item.groupId, item);
-      }
-      if (item.skuAllocations && Array.isArray(item.skuAllocations)) {
-        for (const alloc of item.skuAllocations) {
-          if (alloc.productId && !map.has(alloc.productId)) {
-            map.set(alloc.productId, item);
-          }
-        }
-      }
-    }
-    return map;
-  }, [calculatedOrder]);
 
   return (
     <div className="space-y-6 animate-fade-in pb-28">
