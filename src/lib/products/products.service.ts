@@ -5,7 +5,9 @@ export class ProductsService {
    * Returns individual products (used by admin/seller views).
    */
   static async getProducts(filters: { search?: string; favoritesOnly?: boolean } = {}) {
+    const totalStart = performance.now();
     const { search, favoritesOnly } = filters;
+    const transformStart = performance.now();
     const whereClause: any = {
       isActive: true,
     };
@@ -20,8 +22,10 @@ export class ProductsService {
     if (favoritesOnly) {
       whereClause.isFavorite = true;
     }
+    const transformMs = Math.round(performance.now() - transformStart);
 
-    return await prisma.product.findMany({
+    const dbStart = performance.now();
+    const products = await prisma.product.findMany({
       where: whereClause,
       include: {
         tags: true,
@@ -32,6 +36,12 @@ export class ProductsService {
         { name: 'asc' }
       ]
     });
+    const dbMs = Math.round(performance.now() - dbStart);
+
+    const totalMs = Math.round(performance.now() - totalStart);
+    console.log(`[PERF] ProductsService.getProducts dbMs: ${dbMs}, transformMs: ${transformMs}, totalMs: ${totalMs}`);
+
+    return products;
   }
 
   static async getProductById(id: string) {

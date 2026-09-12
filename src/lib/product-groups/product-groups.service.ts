@@ -28,9 +28,11 @@ export class ProductGroupService {
    * Aggregates stockPacks, uses basePrice from highest-priority SKU.
    */
   static async getCatalogGroups(filters: { search?: string; favoritesOnly?: boolean } = {}) {
+    const totalStart = performance.now();
     const { search, favoritesOnly } = filters;
 
     // 1. Fetch active product groups
+    const dbStart = performance.now();
     const groups = await prisma.productGroup.findMany({
       where: { isActive: true },
       include: {
@@ -43,6 +45,18 @@ export class ProductGroupService {
       orderBy: { displayName: 'asc' }
     });
 
+    // 2. Fetch ungrouped active products (if any exist before migration)
+    const ungroupedProducts = await prisma.product.findMany({
+      where: {
+        groupId: null,
+        isActive: true
+      },
+      include: { tags: true },
+      orderBy: { name: 'asc' }
+    });
+    const dbMs = Math.round(performance.now() - dbStart);
+
+    const transformStart = performance.now();
     const groupItems = groups
       .filter(g => g.skus.length > 0)
       .filter(g => {
@@ -74,16 +88,6 @@ export class ProductGroupService {
           groupId: g.id
         };
       });
-
-    // 2. Fetch ungrouped active products (if any exist before migration)
-    const ungroupedProducts = await prisma.product.findMany({
-      where: {
-        groupId: null,
-        isActive: true
-      },
-      include: { tags: true },
-      orderBy: { name: 'asc' }
-    });
 
     const ungroupedItems = ungroupedProducts
       .filter(p => {
@@ -119,6 +123,10 @@ export class ProductGroupService {
         }],
         groupId: null
       }));
+
+    const transformMs = Math.round(performance.now() - transformStart);
+    const totalMs = Math.round(performance.now() - totalStart);
+    console.log(`[PERF] ProductGroupService.getCatalogGroups dbMs: ${dbMs}, transformMs: ${transformMs}, totalMs: ${totalMs}`);
 
     return [...groupItems, ...ungroupedItems];
   }

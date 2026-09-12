@@ -126,7 +126,11 @@ export class PromotionsService {
     }>,
     companyId?: string | null
   ): Promise<CalculatedOrder> {
+    const totalStart = performance.now();
+
+    const promotionsStart = performance.now();
     const promotions = await this.getApplicablePromotions(companyId);
+    const promotionsMs = Math.round(performance.now() - promotionsStart);
 
     // Group promotions by stage
     const skuPromos = promotions.filter(p => !p.type || p.type === 'SKU_BONUS');
@@ -137,22 +141,37 @@ export class PromotionsService {
     const productIds = inputItems.map(i => i.productId).filter(Boolean);
     const groupIds = inputItems.map(i => i.groupId || i.productId).filter(Boolean);
 
+    let productsMs = 0;
+    let groupsMs = 0;
+
     const [dbProducts, dbGroups] = await Promise.all([
-      prisma.product.findMany({
-        where: { id: { in: productIds } },
-        include: { tags: true }
-      }),
-      prisma.productGroup.findMany({
-        where: { id: { in: groupIds } },
-        include: {
-          skus: {
-            where: { isActive: true },
-            orderBy: { priority: 'asc' },
-            include: { tags: true }
+      (async () => {
+        const s = performance.now();
+        const res = await prisma.product.findMany({
+          where: { id: { in: productIds } },
+          include: { tags: true }
+        });
+        productsMs = Math.round(performance.now() - s);
+        return res;
+      })(),
+      (async () => {
+        const s = performance.now();
+        const res = await prisma.productGroup.findMany({
+          where: { id: { in: groupIds } },
+          include: {
+            skus: {
+              where: { isActive: true },
+              orderBy: { priority: 'asc' },
+              include: { tags: true }
+            }
           }
-        }
-      })
+        });
+        groupsMs = Math.round(performance.now() - s);
+        return res;
+      })()
     ]);
+
+    const calcStart = performance.now();
 
     const productMap = new Map(dbProducts.map(p => [p.id, p]));
     const groupMap = new Map(dbGroups.map(g => [g.id, g]));
@@ -502,6 +521,10 @@ export class PromotionsService {
 
     const finalPayableTotal = Math.round(lineItems.reduce((sum, i) => sum + i.finalLinePrice, 0) * 100) / 100;
     const nominalSubtotal = Math.round(subtotalNominal * 100) / 100;
+
+    const calculationMs = Math.round(performance.now() - calcStart);
+    const totalMs = Math.round(performance.now() - totalStart);
+    console.log(`[PERF] PromotionsService.calculateOrder productsMs: ${productsMs}, groupsMs: ${groupsMs}, promotionsMs: ${promotionsMs}, calculationMs: ${calculationMs}, totalMs: ${totalMs}`);
 
     return {
       items: calculatedItems,

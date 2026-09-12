@@ -80,7 +80,9 @@ export class OrdersService {
     const { items, status } = data;
     const orderStatus = status === 'DRAFT' ? 'DRAFT' : 'NEW';
 
+    const customerStart = performance.now();
     const customer = await prisma.user.findUnique({ where: { id: session.userId } });
+    const customerMs = Math.round(performance.now() - customerStart);
     if (!customer) throw new Error('Клиент не найден.');
 
     // Constrain product and group queries to only items in this order
@@ -92,6 +94,7 @@ export class OrdersService {
     ));
 
     // Load only groups matching the requested IDs or containing any requested child SKU
+    const groupsStart = performance.now();
     const allGroups = await prisma.productGroup.findMany({
       where: {
         isActive: true,
@@ -102,18 +105,21 @@ export class OrdersService {
       },
       include: { skus: { where: { isActive: true }, orderBy: { priority: 'asc' } } }
     });
+    const groupsMs = Math.round(performance.now() - groupsStart);
     const groupMap = new Map(allGroups.map(g => [g.id, g]));
 
     // Collect all relevant product IDs (requested directly + child SKUs of relevant groups)
     const groupSkuIds = allGroups.flatMap(g => g.skus.map(s => s.id));
     const relevantProductIds = Array.from(new Set([...requestedProductIds, ...groupSkuIds]));
 
+    const productsStart = performance.now();
     const dbProducts = await prisma.product.findMany({
       where: {
         id: { in: relevantProductIds },
         isActive: true
       }
     });
+    const productsMs = Math.round(performance.now() - productsStart);
     const productMap = new Map(dbProducts.map(p => [p.id, p]));
 
     const rawItems: any[] = [];
@@ -182,7 +188,9 @@ export class OrdersService {
     }
 
     // Process Promotions & Cost Redistribution (Single Source of Truth)
+    const promoStart = performance.now();
     const promoResult = await PromotionsService.calculateOrder(rawItems, session.companyId);
+    const promotionMs = Math.round(performance.now() - promoStart);
 
     // Pre-check stock & compute SKU allocations for all items before the transaction
     const itemAllocations = new Map<string, SkuAllocation[]>(); // productId -> allocations
@@ -370,7 +378,7 @@ export class OrdersService {
     });
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.createOrder validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
 
     return {
       order: savedOrder,
@@ -388,6 +396,7 @@ export class OrdersService {
     const { orderId, items, status } = data;
     const orderStatus = status === 'NEW' ? 'NEW' : 'DRAFT';
 
+    const orderLookupStart = performance.now();
     const existingOrder = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -396,6 +405,7 @@ export class OrdersService {
         items: { include: { product: true } }
       }
     });
+    const orderLookupMs = Math.round(performance.now() - orderLookupStart);
 
     if (!existingOrder) throw new Error('Заказ не найден.');
 
@@ -423,9 +433,11 @@ export class OrdersService {
     }
 
     // Load existing SKU allocations for stock restore/checks
+    const oldItemSkusStart = performance.now();
     const oldItemSkus = await prisma.orderItemSku.findMany({
       where: { orderItem: { orderId } }
     });
+    const oldItemSkusMs = Math.round(performance.now() - oldItemSkusStart);
 
     // Constrain product and group queries to only relevant IDs for this update
     const requestedProductIds = Array.from(new Set([
@@ -439,6 +451,7 @@ export class OrdersService {
       ...existingOrder.items.map(i => (i.product as any)?.groupId).filter(Boolean)
     ] as string[]));
 
+    const groupsStart = performance.now();
     const allGroups = await prisma.productGroup.findMany({
       where: {
         isActive: true,
@@ -449,15 +462,18 @@ export class OrdersService {
       },
       include: { skus: { where: { isActive: true }, orderBy: { priority: 'asc' } } }
     });
+    const groupsMs = Math.round(performance.now() - groupsStart);
     const groupMap = new Map(allGroups.map(g => [g.id, g]));
 
     // Collect all relevant product IDs (requested directly + child SKUs of relevant groups)
     const groupSkuIds = allGroups.flatMap(g => g.skus.map(s => s.id));
     const relevantProductIds = Array.from(new Set([...requestedProductIds, ...groupSkuIds]));
 
+    const productsStart = performance.now();
     const dbProducts = await prisma.product.findMany({
       where: { id: { in: relevantProductIds } }
     });
+    const productsMs = Math.round(performance.now() - productsStart);
     const productMap = new Map(dbProducts.map(p => [p.id, p]));
 
     const rawItems: any[] = [];
@@ -540,10 +556,13 @@ export class OrdersService {
 
     let processedItems: any[] = [];
     let fixedAmountDeductions: any[] = [];
+    let promotionMs = 0;
 
     if (!isManualPricing) {
       // Customer catalog draft submission / conversion: apply automatic promotion rules
+      const promoStart = performance.now();
       const promoResult = await PromotionsService.calculateOrder(rawItems, session.companyId || existingOrder.companyId);
+      promotionMs = Math.round(performance.now() - promoStart);
       processedItems = promoResult.items;
       fixedAmountDeductions = promoResult.fixedAmountDeductions;
     } else {
@@ -823,7 +842,7 @@ export class OrdersService {
     });
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.updateOrder validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.updateOrder orderLookupMs: ${orderLookupMs}, oldItemSkusMs: ${oldItemSkusMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
 
     return {
       order: updatedOrder,
