@@ -246,9 +246,15 @@ export class OrdersService {
       storageMs = uploadResult.storageMs || 0;
     }
 
+    let stockDeductionMs = 0;
+    let promoDeductionMs = 0;
+    let orderCreateMs = 0;
+    let orderItemSkuMs = 0;
+
     const txStart = performance.now();
     const savedOrder = await prisma.$transaction(async (tx) => {
       if (orderStatus === 'NEW') {
+        const stockStart = performance.now();
         // Consolidate stock decrements per unique SKU to minimize queries and prevent race conditions
         const stockDecrements = new Map<string, number>();
         for (const [, allocs] of itemAllocations) {
@@ -273,8 +279,10 @@ export class OrdersService {
             throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
           }
         }
+        stockDeductionMs = Math.round(performance.now() - stockStart);
 
         // Deduct consumable fixed-amount promotion budgets
+        const promoDeductStart = performance.now();
         for (const deduction of promoResult.fixedAmountDeductions) {
           await tx.promotion.update({
             where: { id: deduction.promotionId },
@@ -284,8 +292,10 @@ export class OrdersService {
             }
           });
         }
+        promoDeductionMs = Math.round(performance.now() - promoDeductStart);
       }
 
+      const orderCreateStart = performance.now();
       const order = await tx.order.create({
         data: {
           orderNumber,
@@ -338,9 +348,11 @@ export class OrdersService {
           items: { include: { product: true } }
         }
       });
+      orderCreateMs = Math.round(performance.now() - orderCreateStart);
 
       // Write per-SKU allocations in a single batch query (OrderItemSku)
       if (orderStatus === 'NEW') {
+        const skuStart = performance.now();
         const allSkuRows: any[] = [];
         for (const item of order.items) {
           const allocs = itemAllocations.get(item.productId);
@@ -359,6 +371,7 @@ export class OrdersService {
         if (allSkuRows.length > 0) {
           await tx.orderItemSku.createMany({ data: allSkuRows });
         }
+        orderItemSkuMs = Math.round(performance.now() - skuStart);
       }
 
       return order;
@@ -368,6 +381,7 @@ export class OrdersService {
     });
     const transactionMs = Math.round(performance.now() - txStart);
 
+    const auditStart = performance.now();
     const diff = AuditService.formatItemsDiff([], promoResult.items.map(i => ({ name: i.name, quantity: i.totalQuantityPacks })));
     await AuditService.log({
       userId: customer.id,
@@ -376,9 +390,10 @@ export class OrdersService {
       newValue: diff.newValue,
       req
     });
+    const auditLogMs = Math.round(performance.now() - auditStart);
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderCreateMs: ${orderCreateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionMs: ${transactionMs}, auditLogMs: ${auditLogMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
 
     return {
       order: savedOrder,
@@ -667,10 +682,18 @@ export class OrdersService {
       storageMs = uploadResult.storageMs || 0;
     }
 
+    let stockRestoreMs = 0;
+    let stockDeductionMs = 0;
+    let promoDeductionMs = 0;
+    let orderDeleteItemsMs = 0;
+    let orderUpdateMs = 0;
+    let orderItemSkuMs = 0;
+
     const txStart = performance.now();
     const updatedOrder = await prisma.$transaction(async (tx) => {
       // Restore old stock from per-SKU allocation records
       if (existingOrder.status === 'NEW') {
+        const restoreStart = performance.now();
         const oldItemSkus = await tx.orderItemSku.findMany({
           where: { orderItem: { orderId } }
         });
@@ -694,9 +717,11 @@ export class OrdersService {
           });
         }
         await tx.orderItemSku.deleteMany({ where: { orderItem: { orderId } } });
+        stockRestoreMs = Math.round(performance.now() - restoreStart);
       }
 
       if (orderStatus === 'NEW') {
+        const stockStart = performance.now();
         // Consolidate new stock decrements per unique SKU
         const stockDecrements = new Map<string, number>();
         for (const [, allocs] of itemAllocations) {
@@ -721,8 +746,10 @@ export class OrdersService {
             throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
           }
         }
+        stockDeductionMs = Math.round(performance.now() - stockStart);
 
         // Deduct consumable fixed-amount promotion budgets
+        const promoDeductStart = performance.now();
         for (const deduction of fixedAmountDeductions) {
           await tx.promotion.update({
             where: { id: deduction.promotionId },
@@ -732,12 +759,16 @@ export class OrdersService {
             }
           });
         }
+        promoDeductionMs = Math.round(performance.now() - promoDeductStart);
       }
 
+      const deleteItemsStart = performance.now();
       await tx.orderItem.deleteMany({ where: { orderId } });
+      orderDeleteItemsMs = Math.round(performance.now() - deleteItemsStart);
 
       const createdAtUpdate = (orderStatus === 'DRAFT' || (existingOrder.status === 'DRAFT' && orderStatus === 'NEW')) ? now : existingOrder.createdAt;
 
+      const orderUpdateStart = performance.now();
       const order = await tx.order.update({
         where: { id: orderId },
         data: {
@@ -792,9 +823,11 @@ export class OrdersService {
         },
         include: { items: { include: { product: true } } }
       });
+      orderUpdateMs = Math.round(performance.now() - orderUpdateStart);
 
       // Write new per-SKU allocations in a single batch query
       if (orderStatus === 'NEW') {
+        const skuStart = performance.now();
         const allSkuRows: any[] = [];
         for (const item of order.items) {
           const allocs = itemAllocations.get(item.productId);
@@ -813,6 +846,7 @@ export class OrdersService {
         if (allSkuRows.length > 0) {
           await tx.orderItemSku.createMany({ data: allSkuRows });
         }
+        orderItemSkuMs = Math.round(performance.now() - skuStart);
       }
 
       return order;
@@ -832,6 +866,7 @@ export class OrdersService {
       auditDetails = `Пользователь ${session.name || session.email} отправил черновик, созданный пользователем ${creatorName}. Номер заказа: ${existingOrder.orderNumber}. Стоимость: ${totalPrice} UZS`;
     }
 
+    const auditStart = performance.now();
     await AuditService.log({
       userId: session.userId,
       action: orderStatus === 'DRAFT' ? 'UPDATE_DRAFT' : 'SUBMIT_DRAFT_ORDER',
@@ -840,9 +875,10 @@ export class OrdersService {
       newValue: diff.newValue,
       req
     });
+    const auditLogMs = Math.round(performance.now() - auditStart);
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.updateOrder orderLookupMs: ${orderLookupMs}, oldItemSkusMs: ${oldItemSkusMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, transactionMs: ${transactionMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.updateOrder orderLookupMs: ${orderLookupMs}, oldItemSkusMs: ${oldItemSkusMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, stockRestoreMs: ${stockRestoreMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderDeleteItemsMs: ${orderDeleteItemsMs}, orderUpdateMs: ${orderUpdateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionMs: ${transactionMs}, auditLogMs: ${auditLogMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
 
     return {
       order: updatedOrder,
