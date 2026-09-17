@@ -303,18 +303,73 @@ export class PromotionsService {
       });
     }
 
-    // Financial evaluation after Stage 1
-    let totalBaseCost = 0;
-    let totalNominalCostWithBonus = 0;
-
+    // ==========================================
+    // STAGE 1 COST REDISTRIBUTION (Per-Promotion)
+    // ==========================================
+    // Tracks Stage 1 line prices: default for each item is basePacks * price
+    const stage1LinePriceMap = new Map<string, number>();
     itemMap.forEach(item => {
-      totalBaseCost += item.basePacks * item.price;
-      totalNominalCostWithBonus += (item.basePacks + item.bonusPacks) * item.price;
+      stage1LinePriceMap.set(item.productId, item.basePacks * item.price);
     });
 
-    const k_sku = totalNominalCostWithBonus > 0 ? totalBaseCost / totalNominalCostWithBonus : 1;
+    // For each triggered SKU promotion, redistribute cost ONLY among its participating items
+    for (const promo of skuPromos) {
+      const qualifyingSourceIds: string[] = [];
+      let sourceBaseCost = 0;
+
+      if ((promo as any).sourceGroupId) {
+        itemMap.forEach(item => {
+          if (item.groupId === (promo as any).sourceGroupId && item.basePacks > 0) {
+            qualifyingSourceIds.push(item.productId);
+            sourceBaseCost += item.basePacks * item.price;
+          }
+        });
+      } else if (promo.sourceProductId) {
+        const item = itemMap.get(promo.sourceProductId);
+        if (item && item.basePacks > 0) {
+          qualifyingSourceIds.push(item.productId);
+          sourceBaseCost += item.basePacks * item.price;
+        }
+      }
+
+      if (qualifyingSourceIds.length === 0 || sourceBaseCost <= 0) continue;
+
+      const isSameSku = promo.bonusMode === 'SAME_SKU' || !promo.bonusProductId || promo.bonusProductId === promo.sourceProductId;
+      const participatingIds = [...qualifyingSourceIds];
+      if (!isSameSku && promo.bonusProductId) {
+        participatingIds.push(promo.bonusProductId);
+      }
+
+      // Check if any bonus was actually awarded for this promotion
+      const hasBonus = participatingIds.some(id => (itemMap.get(id)?.bonusPacks ?? 0) > 0);
+      if (!hasBonus) continue;
+
+      // Calculate nominal value of participating items (totalPacks * price)
+      let participatingNominalCost = 0;
+      participatingIds.forEach(id => {
+        const it = itemMap.get(id);
+        if (it) {
+          participatingNominalCost += (it.basePacks + it.bonusPacks) * it.price;
+        }
+      });
+
+      if (participatingNominalCost > 0) {
+        const k_promo = sourceBaseCost / participatingNominalCost;
+        // Apply k_promo ONLY to the participating items
+        participatingIds.forEach(id => {
+          const it = itemMap.get(id);
+          if (it) {
+            const totalPacks = it.basePacks + it.bonusPacks;
+            stage1LinePriceMap.set(id, totalPacks * (it.price * k_promo));
+          }
+        });
+      }
+    }
 
     // Working line items for Stages 2, 3, 4
+    let totalNominalCostWithBonus = 0;
+    let stage1TotalPrice = 0;
+
     const lineItems: Array<{
       productId: string;
       sku: string;
@@ -338,7 +393,11 @@ export class PromotionsService {
       const totalPacks = item.basePacks + item.bonusPacks;
       if (totalPacks <= 0) return;
 
-      const stage1LinePrice = totalPacks * (item.price * k_sku);
+      const stage1LinePrice = stage1LinePriceMap.get(item.productId) ?? (item.basePacks * item.price);
+      const effectivePrice = totalPacks > 0 ? stage1LinePrice / totalPacks : item.price;
+
+      totalNominalCostWithBonus += totalPacks * item.price;
+      stage1TotalPrice += stage1LinePrice;
 
       lineItems.push({
         productId: item.productId,
@@ -354,14 +413,13 @@ export class PromotionsService {
         stage2LinePrice: stage1LinePrice,
         stage3LinePrice: stage1LinePrice,
         finalLinePrice: stage1LinePrice,
-        effectivePrice: item.price * k_sku,
+        effectivePrice,
         promotionId: item.promotionId,
         promotionNotes: [...item.promotionNotes]
       });
     });
 
     const subtotalNominal = totalNominalCostWithBonus;
-    const stage1TotalPrice = totalBaseCost;
 
     // ==========================================
     // STAGE 2: Order Percentage Discounts

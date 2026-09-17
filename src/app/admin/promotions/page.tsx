@@ -214,7 +214,26 @@ export default function PromotionsPage() {
     setError('');
   };
 
+  const isFormValid = useMemo(() => {
+    if (!form.name || form.name.trim() === '') return false;
+    if (form.type === 'SKU_BONUS') {
+      if (!form.sourceProductId) return false;
+      if (form.bonusMode === 'ANOTHER_SKU' && !form.bonusProductId) return false;
+      return true;
+    }
+    if (form.type === 'ORDER_PERCENTAGE') {
+      const pct = parseFloat(form.discountPercent);
+      return !isNaN(pct) && pct > 0 && pct <= 100;
+    }
+    if (form.type === 'ORDER_FIXED_AMOUNT') {
+      const amt = parseFloat(form.allocatedAmount);
+      return !isNaN(amt) && amt > 0;
+    }
+    return true;
+  }, [form]);
+
   const handleSubmit = async () => {
+    if (!isFormValid) return;
     setSubmitting(true);
     setError('');
     setSuccess('');
@@ -944,7 +963,7 @@ export default function PromotionsPage() {
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Отмена</button>
               <button
                 onClick={handleSubmit}
-                disabled={submitting || !form.name || !form.sourceProductId}
+                disabled={submitting || !isFormValid}
                 className="btn-primary flex-1 flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
