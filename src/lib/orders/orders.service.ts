@@ -269,6 +269,9 @@ export class OrdersService {
     let fileUploadMsg = '';
     let compileAndUploadExcelTotalMs = 0;
     let templateDbMs = 0;
+    let templateDownloadMs = 0;
+    let excelDataPreparationMs = 0;
+    let fileMetadataPreparationMs = 0;
     let excelMs = 0;
     let storageMs = 0;
     const preExcelGapMs = Math.round(performance.now() - preExcelGapStart);
@@ -286,6 +289,9 @@ export class OrdersService {
       fileName = uploadResult.fileName;
       fileUploadMsg = uploadResult.message;
       templateDbMs = uploadResult.templateDbMs || 0;
+      templateDownloadMs = uploadResult.templateDownloadMs || 0;
+      excelDataPreparationMs = uploadResult.excelDataPreparationMs || 0;
+      fileMetadataPreparationMs = uploadResult.fileMetadataPreparationMs || 0;
       excelMs = uploadResult.excelMs || 0;
       storageMs = uploadResult.storageMs || 0;
     }
@@ -449,7 +455,7 @@ export class OrdersService {
     const auditLogMs = Math.round(performance.now() - auditStart);
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, promotionExtraProductsMs: ${promotionExtraProductsMs}, promotionExtraGroupsMs: ${promotionExtraGroupsMs}, promotionExtraDataMs: ${promotionExtraDataMs}, validationMs: ${validationMs}, preExcelGapMs: ${preExcelGapMs}, compileAndUploadExcelTotalMs: ${compileAndUploadExcelTotalMs}, templateDbMs: ${templateDbMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, postExcelPreTransactionMs: ${postExcelPreTransactionMs}, preTransactionGapMs: ${preTransactionGapMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderCreateMs: ${orderCreateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionStageTotalMs: ${transactionStageTotalMs}, transactionUnaccountedMs: ${transactionUnaccountedMs}, transactionMs: ${transactionMs}, postTransactionGapMs: ${postTransactionGapMs}, auditLogMs: ${auditLogMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, promotionExtraProductsMs: ${promotionExtraProductsMs}, promotionExtraGroupsMs: ${promotionExtraGroupsMs}, promotionExtraDataMs: ${promotionExtraDataMs}, validationMs: ${validationMs}, preExcelGapMs: ${preExcelGapMs}, compileAndUploadExcelTotalMs: ${compileAndUploadExcelTotalMs}, templateDbMs: ${templateDbMs}, templateDownloadMs: ${templateDownloadMs}, excelDataPreparationMs: ${excelDataPreparationMs}, fileMetadataPreparationMs: ${fileMetadataPreparationMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, postExcelPreTransactionMs: ${postExcelPreTransactionMs}, preTransactionGapMs: ${preTransactionGapMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderCreateMs: ${orderCreateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionStageTotalMs: ${transactionStageTotalMs}, transactionUnaccountedMs: ${transactionUnaccountedMs}, transactionMs: ${transactionMs}, postTransactionGapMs: ${postTransactionGapMs}, auditLogMs: ${auditLogMs}, totalMs: ${totalMs}`);
 
     return {
       order: savedOrder,
@@ -1108,6 +1114,7 @@ export class OrdersService {
     const templateDbStart = performance.now();
     let activeTemplate = await prisma.template.findFirst({ where: { isActive: true } });
     const templateDbMs = Math.round(performance.now() - templateDbStart);
+    let templateDownloadMs = 0;
     let templateBuffer: Buffer;
     let templateFileName = 'default_order_template.xlsx';
 
@@ -1117,7 +1124,9 @@ export class OrdersService {
       if (this.templateBufferCache && this.templateBufferCache.fileId === activeTemplate.fileId && this.templateBufferCache.expiresAt > now) {
         templateBuffer = this.templateBufferCache.buffer;
       } else {
+        const templateDownloadStart = performance.now();
         templateBuffer = await storageService.downloadFile(activeTemplate.fileId, templateFileName, 'Templates');
+        templateDownloadMs = Math.round(performance.now() - templateDownloadStart);
         this.templateBufferCache = {
           fileId: activeTemplate.fileId,
           buffer: templateBuffer,
@@ -1133,6 +1142,7 @@ export class OrdersService {
       }
     }
 
+    const excelDataPrepStart = performance.now();
     const outputMode = (activeTemplate as any)?.outputMode || 'COMMERCIAL';
 
     // Map CalculatedOrderItem[] to the format expected by generateExcelOrder
@@ -1198,11 +1208,13 @@ export class OrdersService {
       totalPrice: totals.totalPrice,
       items: excelItems
     };
+    const excelDataPreparationMs = Math.round(performance.now() - excelDataPrepStart);
 
     const excelStart = performance.now();
     const compiledExcelBuffer = await generateExcelOrder(templateBuffer, excelOrderData);
     const excelMs = Math.round(performance.now() - excelStart);
 
+    const fileMetadataPrepStart = performance.now();
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -1211,6 +1223,7 @@ export class OrdersService {
     const min = String(now.getMinutes()).padStart(2, '0');
     const sanitizedClient = clientName.replace(/[^a-zA-Z0-9а-яА-Я_-]/g, '');
     const excelFileName = `${year}-${month}-${day}_${hour}-${min}_${sanitizedClient}.xlsx`;
+    const fileMetadataPreparationMs = Math.round(performance.now() - fileMetadataPrepStart);
 
     const storageStart = performance.now();
     const uploadResult = await storageService.uploadFile(
@@ -1228,6 +1241,9 @@ export class OrdersService {
       fileName: excelFileName,
       message: uploadResult.message,
       templateDbMs,
+      templateDownloadMs,
+      excelDataPreparationMs,
+      fileMetadataPreparationMs,
       excelMs,
       storageMs
     };
