@@ -256,6 +256,8 @@ export class OrdersService {
     const validationMs = Math.round(performance.now() - totalStart);
 
     const preTransactionGapStart = performance.now();
+
+    const preExcelGapStart = performance.now();
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
@@ -265,29 +267,37 @@ export class OrdersService {
     let fileId = null;
     let fileName = null;
     let fileUploadMsg = '';
+    let compileAndUploadExcelTotalMs = 0;
+    let templateDbMs = 0;
     let excelMs = 0;
     let storageMs = 0;
+    const preExcelGapMs = Math.round(performance.now() - preExcelGapStart);
 
     if (orderStatus === 'NEW') {
+      const excelUploadStart = performance.now();
       const uploadResult = await this.compileAndUploadExcel(orderNumber, customer.name, promoResult.items, {
         totalBlocks: promoResult.totalBlocks,
         totalCases: promoResult.totalCases,
         totalPrice: promoResult.totalPrice
       });
+      compileAndUploadExcelTotalMs = Math.round(performance.now() - excelUploadStart);
       orderFileUrl = uploadResult.fileUrl;
       fileId = uploadResult.fileId;
       fileName = uploadResult.fileName;
       fileUploadMsg = uploadResult.message;
+      templateDbMs = uploadResult.templateDbMs || 0;
       excelMs = uploadResult.excelMs || 0;
       storageMs = uploadResult.storageMs || 0;
     }
 
-    const preTransactionGapMs = Math.round(performance.now() - preTransactionGapStart);
-
+    const postExcelStart = performance.now();
     let stockDeductionMs = 0;
     let promoDeductionMs = 0;
     let orderCreateMs = 0;
     let orderItemSkuMs = 0;
+    const postExcelPreTransactionMs = Math.round(performance.now() - postExcelStart);
+
+    const preTransactionGapMs = Math.round(performance.now() - preTransactionGapStart);
 
     const txStart = performance.now();
     const savedOrder = await prisma.$transaction(async (tx) => {
@@ -439,7 +449,7 @@ export class OrdersService {
     const auditLogMs = Math.round(performance.now() - auditStart);
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, promotionExtraProductsMs: ${promotionExtraProductsMs}, promotionExtraGroupsMs: ${promotionExtraGroupsMs}, promotionExtraDataMs: ${promotionExtraDataMs}, validationMs: ${validationMs}, preTransactionGapMs: ${preTransactionGapMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderCreateMs: ${orderCreateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionStageTotalMs: ${transactionStageTotalMs}, transactionUnaccountedMs: ${transactionUnaccountedMs}, transactionMs: ${transactionMs}, postTransactionGapMs: ${postTransactionGapMs}, auditLogMs: ${auditLogMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, promotionExtraProductsMs: ${promotionExtraProductsMs}, promotionExtraGroupsMs: ${promotionExtraGroupsMs}, promotionExtraDataMs: ${promotionExtraDataMs}, validationMs: ${validationMs}, preExcelGapMs: ${preExcelGapMs}, compileAndUploadExcelTotalMs: ${compileAndUploadExcelTotalMs}, templateDbMs: ${templateDbMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, postExcelPreTransactionMs: ${postExcelPreTransactionMs}, preTransactionGapMs: ${preTransactionGapMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderCreateMs: ${orderCreateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionStageTotalMs: ${transactionStageTotalMs}, transactionUnaccountedMs: ${transactionUnaccountedMs}, transactionMs: ${transactionMs}, postTransactionGapMs: ${postTransactionGapMs}, auditLogMs: ${auditLogMs}, totalMs: ${totalMs}`);
 
     return {
       order: savedOrder,
@@ -1095,7 +1105,9 @@ export class OrdersService {
    * Helper: compile Excel template and upload to storage service
    */
   private static async compileAndUploadExcel(orderNumber: string, clientName: string, validatedItems: any[], totals: { totalBlocks: number; totalCases: number; totalPrice: number }) {
+    const templateDbStart = performance.now();
     let activeTemplate = await prisma.template.findFirst({ where: { isActive: true } });
+    const templateDbMs = Math.round(performance.now() - templateDbStart);
     let templateBuffer: Buffer;
     let templateFileName = 'default_order_template.xlsx';
 
@@ -1215,6 +1227,7 @@ export class OrdersService {
       fileId: uploadResult.fileId,
       fileName: excelFileName,
       message: uploadResult.message,
+      templateDbMs,
       excelMs,
       storageMs
     };
