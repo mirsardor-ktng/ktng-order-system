@@ -5,8 +5,10 @@ import { Search, Star, Layers, Package, Grid, Plus, Minus, FileText, Check, Aler
 import confetti from 'canvas-confetti';
 import { UnitMode, packsToUnit, unitToPacks, breakdownPacks } from '@/lib/conversion';
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
+import { useTranslation } from '@/i18n/context';
 
 interface TagItem {
+
   id: string;
   name: string;
   color: string;
@@ -115,8 +117,10 @@ function setGroupPacksInCart(
 }
 
 export default function CustomerCatalog() {
+  const { t, localizeError } = useTranslation();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+
 
   // Catalog Search & Favorites Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -548,7 +552,7 @@ export default function CustomerCatalog() {
       });
 
     if (items.length === 0) {
-      setMessage({ type: 'error', text: 'Корзина заказа пуста.' });
+      setMessage({ type: 'error', text: t('products.cartEmpty') });
       setSubmitting(false);
       return;
     }
@@ -569,7 +573,7 @@ export default function CustomerCatalog() {
       const data = await res.json();
 
       if (res.ok) {
-        setMessage({ type: 'success', text: data.message });
+        setMessage({ type: 'success', text: t('orders.orderCreatedSuccess') });
         setCart({});
 
         if (activeDraftId) {
@@ -593,10 +597,10 @@ export default function CustomerCatalog() {
           setProducts(freshProds);
         }
       } else {
-        setMessage({ type: 'error', text: data.error });
+        setMessage({ type: 'error', text: localizeError(data.error) });
       }
     } catch (err) {
-      setMessage({ type: 'error', text: 'Ошибка отправки заказа на сервер.' });
+      setMessage({ type: 'error', text: t('auth.networkError') });
     } finally {
       setSubmitting(false);
     }
@@ -606,10 +610,11 @@ export default function CustomerCatalog() {
     return (
       <div className="flex h-64 w-full flex-col items-center justify-center text-foreground">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-xs font-semibold text-slate-400">Формируем витрину сигаретной продукции...</p>
+        <p className="mt-4 text-xs font-semibold text-slate-400">{t('common.loading')}</p>
       </div>
     );
   }
+
 
   return (
     <div className="space-y-6 animate-fade-in pb-28">
@@ -674,7 +679,7 @@ export default function CustomerCatalog() {
               <input
                 type="text"
                 className="w-full rounded-xl pl-11 pr-4 py-3 text-xs glass-input"
-                placeholder="Поиск марки, SKU или артикула..."
+                placeholder={t('products.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -690,14 +695,12 @@ export default function CustomerCatalog() {
               }`}
             >
               <Star className={`h-4 w-4 ${favoritesOnly ? 'fill-amber-400 text-amber-400' : 'text-slate-400'}`} />
-              <span>Только Избранное</span>
+              <span>★</span>
             </button>
           </div>
 
           {/* B2B Unit Selection Mode Switcher */}
           <div className="flex items-center gap-2.5 bg-slate-900/50 p-1.5 rounded-xl border border-white/5 w-full sm:w-auto overflow-x-auto">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-2 whitespace-nowrap">Единицы измерения:</span>
-
             <button
               onClick={() => setUnitMode('PACKS')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
@@ -707,7 +710,7 @@ export default function CustomerCatalog() {
               }`}
             >
               <Package className="h-3.5 w-3.5" />
-              <span>Пачки</span>
+              <span>{t('products.packs')}</span>
             </button>
 
             <button
@@ -719,7 +722,7 @@ export default function CustomerCatalog() {
               }`}
             >
               <Layers className="h-3.5 w-3.5" />
-              <span>Блоки</span>
+              <span>{t('products.blocks')}</span>
             </button>
 
             <button
@@ -731,9 +734,10 @@ export default function CustomerCatalog() {
               }`}
             >
               <Grid className="h-3.5 w-3.5" />
-              <span>Коробки</span>
+              <span>{t('products.pieces')}</span>
             </button>
           </div>
+
         </div>
 
         {/* Tags filter line */}
@@ -1079,7 +1083,7 @@ export default function CustomerCatalog() {
               </div>
               <div className="space-y-0.5">
                 <div className="flex flex-wrap items-center gap-x-2 text-slate-400 text-xs font-semibold">
-                  <span>Активный заказ:</span>
+                  <span>{t('orders.orderSummary')}:</span>
                   <span className="text-primary-focus font-bold">
                     {calculatedOrder
                       ? `${calculatedOrder.totalBlocks} бл. (${calculatedOrder.totalCases} кор.)`
@@ -1087,7 +1091,7 @@ export default function CustomerCatalog() {
                   </span>
                   {calculatedOrder && calculatedOrder.totalBonusBlocks > 0 && (
                     <span className="text-emerald-400 font-bold text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
-                      +{calculatedOrder.totalBonusBlocks} бл. бонус
+                      +{calculatedOrder.totalBonusBlocks} {t('orders.bonusItem')}
                     </span>
                   )}
                 </div>
@@ -1095,14 +1099,14 @@ export default function CustomerCatalog() {
                 {/* Total Price display with promotion discount info */}
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="text-slate-200 text-base font-extrabold tracking-tight">
-                    Итого: <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+                    {t('common.total')}: <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
                       {(calculatedOrder && calculatedOrder.totalPrice > 0 ? calculatedOrder.totalPrice : orderTotals.price).toLocaleString()} so'm
                     </span>
                   </span>
 
                   {calculatedOrder && calculatedOrder.totalDiscount > 0 && (
                     <span className="text-xs text-emerald-400 font-bold">
-                      (скидка -{calculatedOrder.totalDiscount.toLocaleString()} so'm)
+                      ({t('orders.discount')} -{calculatedOrder.totalDiscount.toLocaleString()} so'm)
                     </span>
                   )}
                 </div>
@@ -1132,7 +1136,7 @@ export default function CustomerCatalog() {
                 ) : (
                   <FileText className="h-4 w-4" />
                 )}
-                <span>Сохранить черновик</span>
+                <span>{t('orders.draft')}</span>
               </button>
 
               <button
@@ -1145,9 +1149,10 @@ export default function CustomerCatalog() {
                 ) : (
                   <Check className="h-4 w-4" />
                 )}
-                <span>{activeDraftId ? 'Оформить заказ' : 'Отправить заказ в Excel'}</span>
+                <span>{activeDraftId ? t('orders.confirmOrder') : t('orders.checkoutButton')}</span>
               </button>
             </div>
+
           </div>
         </div>
       )}

@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { 
   LayoutDashboard, Users, ShoppingBag, FolderSymlink, MapPin, FileClock, 
   Settings, LogOut, User, Loader2, Sparkles, Tag, Menu, X, ChevronRight, Shield, FileUp, Building2, BarChart3, Percent, Layers3, KeyRound
 } from 'lucide-react';
+import { useTranslation } from '@/i18n/context';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 interface AuthUser {
   name: string;
@@ -20,6 +22,7 @@ interface AuthUser {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -77,7 +80,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center bg-background text-foreground">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <p className="mt-4 text-sm font-medium text-slate-400 font-semibold uppercase tracking-wider">Загрузка консоли администратора...</p>
+        <p className="mt-4 text-sm font-semibold text-slate-400 uppercase tracking-wider">{t('common.loading')}</p>
       </div>
     );
   }
@@ -93,23 +96,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return userPerms.includes(required);
   };
 
-  // Sidebar navigation menu with permission bindings
-  const allMenuItems = [
-    { name: 'Обзор', path: '/admin', icon: LayoutDashboard, required: [] },
-    { name: 'Аналитика', path: '/analytics', icon: BarChart3, required: ['analytics:view'] },
-    { name: 'Пользователи', path: '/admin/users', icon: Users, required: ['users:read', 'users:manage'] },
-    { name: 'Шаблоны ролей', path: '/admin/roles', icon: KeyRound, required: ['roles:manage', 'users:manage'] },
-    { name: 'Компании', path: '/admin/companies', icon: Building2, required: ['companies:read', 'companies:manage'] },
-    { name: 'Акции & Скидки', path: '/admin/promotions', icon: Percent, required: ['promotions:read', 'promotions:manage'] },
-    { name: 'Группы товаров', path: '/admin/product-groups', icon: Layers3, required: ['product_groups:manage', 'products:manage'] },
-    { name: 'Каталог SKU', path: '/admin/products', icon: ShoppingBag, required: ['products:read', 'products:manage', 'products:stock_update'] },
-    { name: 'Теги', path: '/admin/tags', icon: Tag, required: ['tags:manage', 'products:manage'] },
-    { name: 'Шаблоны Excel', path: '/admin/templates', icon: FolderSymlink, required: ['templates:manage'] },
-    { name: 'Маппинг полей', path: '/admin/placeholders', icon: MapPin, required: ['placeholders:manage'] },
-    { name: 'Импорт истории', path: '/admin/import-history', icon: FileUp, required: ['import:execute'] },
-    { name: 'Логи системы', path: '/admin/logs', icon: FileClock, required: ['logs:view'] },
-    { name: 'Интеграция GDrive', path: '/admin/settings', icon: Settings, required: ['settings:manage'] }
-  ];
+  // Sidebar navigation menu with permission bindings and i18n
+  const allMenuItems = useMemo(() => [
+    { name: t('navigation.dashboard'), path: '/admin', icon: LayoutDashboard, required: [] },
+    { name: t('navigation.analytics'), path: '/analytics', icon: BarChart3, required: ['analytics:view'] },
+    { name: t('navigation.users'), path: '/admin/users', icon: Users, required: ['users:read', 'users:manage'] },
+    { name: t('navigation.roles'), path: '/admin/roles', icon: KeyRound, required: ['roles:manage', 'users:manage'] },
+    { name: t('navigation.companies'), path: '/admin/companies', icon: Building2, required: ['companies:read', 'companies:manage'] },
+    { name: t('navigation.promotions'), path: '/admin/promotions', icon: Percent, required: ['promotions:read', 'promotions:manage'] },
+    { name: t('navigation.productGroups'), path: '/admin/product-groups', icon: Layers3, required: ['product_groups:manage', 'products:manage'] },
+    { name: t('navigation.productsSku'), path: '/admin/products', icon: ShoppingBag, required: ['products:read', 'products:manage', 'products:stock_update'] },
+    { name: t('navigation.tags'), path: '/admin/tags', icon: Tag, required: ['tags:manage', 'products:manage'] },
+    { name: t('navigation.excelTemplates'), path: '/admin/templates', icon: FolderSymlink, required: ['templates:manage'] },
+    { name: t('navigation.fieldMapping'), path: '/admin/placeholders', icon: MapPin, required: ['placeholders:manage'] },
+    { name: t('navigation.importHistory'), path: '/admin/import-history', icon: FileUp, required: ['import:execute'] },
+    { name: t('navigation.systemLogs'), path: '/admin/logs', icon: FileClock, required: ['logs:view'] },
+    { name: t('navigation.cloudStorage'), path: '/admin/settings', icon: Settings, required: ['settings:manage'] }
+  ], [t]);
 
   const visibleMenuItems = allMenuItems.filter(item => {
     if (item.required.length === 0) return true;
@@ -129,7 +132,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <span className="font-bold tracking-tight text-sm flex items-center gap-1">
             ADMIN CORE <span className="text-[10px] text-primary-focus">v2.0</span>
           </span>
-          <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none">B2B Order Control</span>
+          <span className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none">{t('navigation.orderControl')}</span>
         </div>
       </div>
 
@@ -157,20 +160,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         })}
       </nav>
 
-      {/* User Card & Logout */}
+      {/* User Card, Language Switcher & Logout */}
       <div className="p-4 border-t border-white/5 space-y-3 bg-slate-950/30 flex-shrink-0">
+        {/* Language Switcher in Admin Sidebar */}
+        <div className="flex justify-center">
+          <LanguageSwitcher size="sm" />
+        </div>
+
         <div className="flex items-center gap-3 px-2">
           <Link 
             href="/admin/profile" 
             className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-300 flex-shrink-0 hover:bg-white/10 hover:text-white transition-all"
-            title="Личный кабинет"
+            title={t('navigation.profile')}
           >
             <User className="h-4 w-4" />
           </Link>
           <div className="flex-1 min-w-0">
             <span className="block text-xs font-bold text-slate-200 truncate">{user?.name}</span>
             <span className="block text-[8px] text-slate-500 uppercase tracking-widest font-extrabold leading-none mt-1 truncate">
-              {user?.roleName || 'Суперадминистратор'}
+              {user?.roleName || 'Superadmin'}
             </span>
           </div>
         </div>
@@ -180,9 +188,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Link 
               href="/seller" 
               className="flex items-center justify-center rounded-lg border border-cyan-500/25 bg-cyan-500/10 py-1.5 text-[9px] font-bold text-cyan-400 hover:bg-cyan-500/20 transition-all"
-              title="Перейти в консоль продаж"
+              title={t('navigation.sellerConsole')}
             >
-              Консоль продаж
+              {t('navigation.sellerConsole')}
             </Link>
           ) : (
             <div className="flex items-center justify-center rounded-lg border border-white/5 bg-white/[0.02] py-1.5 text-[9px] font-bold text-slate-500">
@@ -194,7 +202,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             className="flex items-center justify-center gap-1 rounded-lg bg-red-500/10 border border-red-500/20 py-1.5 text-[9px] font-bold text-red-400 hover:bg-red-500/20 transition-all"
           >
             <LogOut className="h-3 w-3" />
-            <span>Выйти</span>
+            <span>{t('auth.logout')}</span>
           </button>
         </div>
       </div>
@@ -242,7 +250,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <button
               onClick={() => setDrawerOpen(true)}
               className="h-8 w-8 flex items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white transition-all"
-              aria-label="Открыть меню"
+              aria-label="Menu"
             >
               <Menu className="h-4 w-4" />
             </button>
@@ -252,23 +260,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <span className="font-extrabold tracking-tight text-xs uppercase text-slate-200">Admin Control</span>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher size="sm" />
             {canSwitchToSeller && (
               <Link 
                 href="/seller"
                 className="px-2.5 py-1 text-[9px] font-bold rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
               >
-                Продажи
+                {t('navigation.sellerConsole')}
               </Link>
             )}
             <button 
               onClick={handleLogout}
               className="h-7 w-7 rounded bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center"
+              title={t('auth.logout')}
             >
               <LogOut className="h-3.5 w-3.5" />
             </button>
           </div>
         </header>
+
 
         {/* Mobile horizontal sub-nav */}
         <nav className="flex-shrink-0 flex lg:hidden bg-slate-950/80 border-b border-white/5 py-2 px-4 gap-1.5 overflow-x-auto select-none z-20">

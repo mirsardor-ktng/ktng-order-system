@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { ShoppingBag, History, LogOut, User, Loader2, Sparkles, Leaf, BarChart3 } from 'lucide-react';
+import { useTranslation } from '@/i18n/context';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 interface AuthUser {
   name: string;
@@ -17,6 +19,7 @@ interface AuthUser {
 export default function CustomerLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
 
@@ -63,7 +66,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center bg-background text-foreground">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <p className="mt-4 text-sm font-semibold text-slate-400 uppercase tracking-wider">Загрузка каталога заказчика...</p>
+        <p className="mt-4 text-sm font-semibold text-slate-400 uppercase tracking-wider">{t('common.loading')}</p>
       </div>
     );
   }
@@ -105,7 +108,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
                 }`}
               >
                 <ShoppingBag className="h-3.5 w-3.5" />
-                <span>Каталог товаров</span>
+                <span>{t('navigation.catalog')}</span>
               </Link>
               
               <Link 
@@ -117,8 +120,9 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
                 }`}
               >
                 <History className="h-3.5 w-3.5" />
-                <span>История заказов</span>
+                <span>{t('navigation.orderHistory')}</span>
               </Link>
+
 
               {canViewAnalytics && (
                 <Link 
@@ -130,24 +134,26 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
                   }`}
                 >
                   <BarChart3 className="h-3.5 w-3.5" />
-                  <span>Аналитика</span>
+                  <span>{t('navigation.analytics')}</span>
                 </Link>
               )}
             </nav>
 
-            {/* Profile Info & Logout */}
-            <div className="flex items-center gap-3">
-              <div className="hidden md:flex flex-col text-right">
+            {/* Language Switcher & Profile Info & Logout */}
+            <div className="flex items-center gap-2.5">
+              <LanguageSwitcher size="sm" />
+
+              <div className="hidden md:flex flex-col text-right pl-2 border-l border-white/5">
                 <span className="text-xs font-bold text-slate-200">{user?.name}</span>
                 <span className="text-[10px] text-slate-500 font-semibold tracking-wider">
-                  {user?.roleName || 'B2B Покупатель'}
+                  {user?.roleName || 'B2B Customer'}
                 </span>
               </div>
               
               <Link 
                 href="/customer/profile" 
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-all"
-                title="Личный кабинет"
+                title={t('navigation.profile')}
               >
                 <User className="h-4 w-4" />
               </Link>
@@ -155,7 +161,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
               <button 
                 onClick={handleLogout}
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all"
-                title="Выйти из системы"
+                title={t('auth.logout')}
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -170,11 +176,11 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
             className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg whitespace-nowrap transition-all ${
               pathname === '/customer' 
                 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' 
-                : 'text-slate-400'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
             <ShoppingBag className="h-3 w-3" />
-            <span>Каталог</span>
+            <span>{t('navigation.catalog')}</span>
           </Link>
           
           <Link 
@@ -182,11 +188,11 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
             className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg whitespace-nowrap transition-all ${
               pathname === '/customer/orders' 
                 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' 
-                : 'text-slate-400'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
             <History className="h-3 w-3" />
-            <span>Мои заказы</span>
+            <span>{t('navigation.orderHistory')}</span>
           </Link>
 
           {canViewAnalytics && (
@@ -195,11 +201,11 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
               className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg whitespace-nowrap transition-all ${
                 pathname === '/analytics' 
                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' 
-                  : 'text-slate-400'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               <BarChart3 className="h-3 w-3" />
-              <span>Аналитика</span>
+              <span>{t('navigation.analytics')}</span>
             </Link>
           )}
         </div>
