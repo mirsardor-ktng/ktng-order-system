@@ -146,6 +146,9 @@ export const uz: Dictionary = {
     bonusFromPromo: 'Aksiya bo‘yicha bonus',
     comment: 'Buyurtmaga izoh',
     commentPlaceholder: 'Zarur bo‘lsa izoh yozing...',
+    sendComment: 'Yuborish',
+    commentAdded: 'Izoh qo‘shildi',
+    commentAddError: 'Izoh yuborilmadi',
     statusAssembly: 'Yig‘ilmoqda',
     statusCompleted: 'Yakunlangan',
     loadingHistory: 'Tarix yuklanmoqda...'

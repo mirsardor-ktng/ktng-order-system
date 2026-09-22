@@ -146,6 +146,9 @@ export const ru: Dictionary = {
     bonusFromPromo: 'Бонус по акции',
     comment: 'Примечание к заказу',
     commentPlaceholder: 'Укажите комментарий при необходимости...',
+    sendComment: 'Отправить',
+    commentAdded: 'Комментарий добавлен',
+    commentAddError: 'Не удалось отправить комментарий',
     statusAssembly: 'Сборка',
     statusCompleted: 'Завершен',
     loadingHistory: 'Загрузка истории...'

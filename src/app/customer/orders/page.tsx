@@ -83,6 +83,61 @@ function CustomerOrdersContent() {
   const [loading, setLoading] = useState(true);
 
   const [repetitionLoading, setRepetitionLoading] = useState<string | null>(null);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentSending, setCommentSending] = useState<Record<string, boolean>>({});
+  const [commentStatus, setCommentStatus] = useState<Record<string, 'success' | 'error'>>({});
+
+  const handleSendComment = async (orderId: string) => {
+    const text = (commentDrafts[orderId] || '').trim();
+    if (!text || commentSending[orderId]) return;
+
+    setCommentSending((prev) => ({ ...prev, [orderId]: true }));
+    setCommentStatus((prev) => {
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
+    });
+
+    try {
+      const res = await fetch('/api/orders/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, text })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.comment) {
+          setOrders((prev) =>
+            prev.map((o) => {
+              if (o.id === orderId) {
+                return {
+                  ...o,
+                  comments: [...(o.comments || []), data.comment]
+                };
+              }
+              return o;
+            })
+          );
+          setCommentDrafts((prev) => ({ ...prev, [orderId]: '' }));
+          setCommentStatus((prev) => ({ ...prev, [orderId]: 'success' }));
+        } else {
+          setCommentStatus((prev) => ({ ...prev, [orderId]: 'error' }));
+        }
+      } else {
+        setCommentStatus((prev) => ({ ...prev, [orderId]: 'error' }));
+      }
+    } catch (err) {
+      console.error('Failed to post comment', err);
+      setCommentStatus((prev) => ({ ...prev, [orderId]: 'error' }));
+    } finally {
+      setCommentSending((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    }
+  };
 
   const loadOrders = async () => {
     try {
@@ -363,6 +418,60 @@ function CustomerOrdersContent() {
                       })}
                     </div>
                   ) : null}
+
+                  {/* Add comment input */}
+                  <div className="flex gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={commentDrafts[order.id] || ''}
+                      onChange={(e) => {
+                        setCommentDrafts((prev) => ({ ...prev, [order.id]: e.target.value }));
+                        if (commentStatus[order.id]) {
+                          setCommentStatus((prev) => {
+                            const next = { ...prev };
+                            delete next[order.id];
+                            return next;
+                          });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSendComment(order.id);
+                        }
+                      }}
+                      placeholder={t('orders.commentPlaceholder')}
+                      disabled={Boolean(commentSending[order.id])}
+                      className="flex-1 rounded-xl px-3 py-2 text-xs glass-input border border-white/10 bg-slate-900/60 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSendComment(order.id)}
+                      disabled={
+                        Boolean(commentSending[order.id]) ||
+                        !(commentDrafts[order.id]?.trim())
+                      }
+                      className="btn-primary px-3.5 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                    >
+                      {commentSending[order.id] ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <span>{t('orders.sendComment')}</span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Comment status notification */}
+                  {commentStatus[order.id] === 'success' && (
+                    <span className="block text-[11px] text-emerald-400 font-medium px-1">
+                      {t('orders.commentAdded')}
+                    </span>
+                  )}
+                  {commentStatus[order.id] === 'error' && (
+                    <span className="block text-[11px] text-rose-400 font-medium px-1">
+                      {t('orders.commentAddError')}
+                    </span>
+                  )}
                 </div>
 
                 {/* Bottom Actions panel */}

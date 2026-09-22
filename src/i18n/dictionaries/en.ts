@@ -146,6 +146,9 @@ export const en: Dictionary = {
     bonusFromPromo: 'Bonus from promotion',
     comment: 'Order Notes',
     commentPlaceholder: 'Add any specific notes or instructions...',
+    sendComment: 'Send',
+    commentAdded: 'Comment added',
+    commentAddError: 'Failed to send comment',
     statusAssembly: 'Assembly',
     statusCompleted: 'Completed',
     loadingHistory: 'Loading history...'

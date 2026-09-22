@@ -151,6 +151,9 @@ export interface OrdersTranslations {
   bonusFromPromo: string;
   comment: string;
   commentPlaceholder: string;
+  sendComment: string;
+  commentAdded: string;
+  commentAddError: string;
   loadingHistory: string;
 }
 
