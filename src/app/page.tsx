@@ -199,10 +199,10 @@ export default function Home() {
 
               <div className="space-y-4">
                 <h3 className="text-lg font-bold flex items-center gap-2 text-cyan-400">
-                  <Database className="h-5 w-5" /> 2. Шифрование базы данных в Google Drive
+                  <Database className="h-5 w-5" /> 2. Шифрование резервных копий
                 </h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Поскольку резервные копии пользователей синхронизируются с Google Drive, мы шифруем файлы по стандарту 
+                  Поскольку резервные копии пользователей синхронизируются с защищенным облачным хранилищем, мы шифруем файлы по стандарту
                   <strong> AES-256-CBC</strong>. Укажите секретную фразу-пароль, которая будет использоваться в качестве мастер-ключа.
                 </p>
 
@@ -222,7 +222,7 @@ export default function Home() {
                     />
                   </div>
                   <span className="text-[10px] text-slate-500">
-                    * Сохраните этот ключ. Восстановление данных с Google Drive без него будет невозможно.
+                    * Сохраните этот ключ. Восстановление данных из хранилища без него будет невозможно.
                   </span>
                 </div>
               </div>

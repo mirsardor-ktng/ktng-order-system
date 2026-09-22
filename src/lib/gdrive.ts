@@ -69,7 +69,7 @@ export async function getGDriveConfig(): Promise<GDriveConfig> {
  */
 function getDriveClient(config: GDriveConfig) {
   if (!config.refreshToken) {
-    throw new Error('Google Drive credentials (Refresh Token) missing. Please authorize Google Drive in Settings.');
+    throw new Error('Учетные данные облачного хранилища отсутствуют. Обратитесь к администратору.');
   }
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     throw new Error('Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET in .env file.');
@@ -145,13 +145,13 @@ export async function uploadFile(
     return {
       success: true,
       fileId: response.data.id || '',
-      message: 'Файл успешно загружен на Google Drive'
+      message: 'Файл успешно сохранен'
     };
   } catch (error: any) {
-    console.error('[GDrive Error] Failed to upload:', error);
+    console.error('[Storage Error] Failed to upload:', error);
     
     // If sync is explicitly enabled, we should not fallback to local storage (write permission constraints on Vercel)
-    throw new Error(`Ошибка загрузки на Google Drive: ${error.message}`);
+    throw new Error(`Ошибка сохранения файла: ${error.message}`);
   }
 }
 

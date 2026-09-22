@@ -92,8 +92,15 @@ export class PromotionsService {
         discountPercent: true,
         remainingAmount: true,
         maxOrderUsagePercent: true,
-        sourceProduct: true,
-        bonusProduct: true,
+        bonusProduct: {
+          select: {
+            id: true,
+            sku: true,
+            name: true,
+            basePrice: true,
+            groupId: true
+          }
+        },
         companies: { select: { id: true } }
       }
     });
@@ -128,28 +135,32 @@ export class PromotionsService {
   ): Promise<CalculatedOrder> {
     const totalStart = performance.now();
 
-    const promotionsStart = performance.now();
-    const promotions = await this.getApplicablePromotions(companyId);
-    const promotionsMs = Math.round(performance.now() - promotionsStart);
-
-    // Group promotions by stage
-    const skuPromos = promotions.filter(p => !p.type || p.type === 'SKU_BONUS');
-    const percentagePromos = promotions.filter(p => p.type === 'ORDER_PERCENTAGE' && p.discountPercent && p.discountPercent > 0);
-    const fixedAmountPromos = promotions.filter(p => p.type === 'ORDER_FIXED_AMOUNT' && (p.remainingAmount === null || (p.remainingAmount !== null && p.remainingAmount > 0)));
-
     // Fetch product and group details if sku/name/price missing or if item.productId is a group ID
     const productIds = inputItems.map(i => i.productId).filter(Boolean);
     const groupIds = inputItems.map(i => i.groupId || i.productId).filter(Boolean);
 
     let productsMs = 0;
     let groupsMs = 0;
+    let promotionsMs = 0;
 
-    const [dbProducts, dbGroups] = await Promise.all([
+    const [promotions, dbProducts, dbGroups] = await Promise.all([
+      (async () => {
+        const s = performance.now();
+        const res = await this.getApplicablePromotions(companyId);
+        promotionsMs = Math.round(performance.now() - s);
+        return res;
+      })(),
       (async () => {
         const s = performance.now();
         const res = await prisma.product.findMany({
           where: { id: { in: productIds } },
-          include: { tags: true }
+          select: {
+            id: true,
+            sku: true,
+            name: true,
+            basePrice: true,
+            groupId: true
+          }
         });
         productsMs = Math.round(performance.now() - s);
         return res;
@@ -158,11 +169,20 @@ export class PromotionsService {
         const s = performance.now();
         const res = await prisma.productGroup.findMany({
           where: { id: { in: groupIds } },
-          include: {
+          select: {
+            id: true,
+            displayName: true,
             skus: {
               where: { isActive: true },
               orderBy: { priority: 'asc' },
-              include: { tags: true }
+              select: {
+                id: true,
+                sku: true,
+                name: true,
+                basePrice: true,
+                groupId: true,
+                priority: true
+              }
             }
           }
         });
@@ -170,6 +190,11 @@ export class PromotionsService {
         return res;
       })()
     ]);
+
+    // Group promotions by stage
+    const skuPromos = promotions.filter(p => !p.type || p.type === 'SKU_BONUS');
+    const percentagePromos = promotions.filter(p => p.type === 'ORDER_PERCENTAGE' && p.discountPercent && p.discountPercent > 0);
+    const fixedAmountPromos = promotions.filter(p => p.type === 'ORDER_FIXED_AMOUNT' && (p.remainingAmount === null || (p.remainingAmount !== null && p.remainingAmount > 0)));
 
     const calcStart = performance.now();
 
@@ -268,7 +293,10 @@ export class PromotionsService {
       } else {
         let bonusProductItem = itemMap.get(promo.bonusProductId);
         if (!bonusProductItem) {
-          const bonusProd = promo.bonusProduct || await prisma.product.findUnique({ where: { id: promo.bonusProductId } });
+          const bonusProd = promo.bonusProduct || (promo.bonusProductId ? await prisma.product.findUnique({
+            where: { id: promo.bonusProductId },
+            select: { id: true, sku: true, name: true, basePrice: true, groupId: true }
+          }) : null);
           if (bonusProd) {
             bonusProductItem = {
               productId: bonusProd.id,
