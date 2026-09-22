@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -97,7 +97,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   };
 
   // Sidebar navigation menu with permission bindings and i18n
-  const allMenuItems = useMemo(() => [
+  const allMenuItems = [
     { name: t('navigation.dashboard'), path: '/admin', icon: LayoutDashboard, required: [] },
     { name: t('navigation.analytics'), path: '/analytics', icon: BarChart3, required: ['analytics:view'] },
     { name: t('navigation.users'), path: '/admin/users', icon: Users, required: ['users:read', 'users:manage'] },
@@ -112,7 +112,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: t('navigation.importHistory'), path: '/admin/import-history', icon: FileUp, required: ['import:execute'] },
     { name: t('navigation.systemLogs'), path: '/admin/logs', icon: FileClock, required: ['logs:view'] },
     { name: t('navigation.cloudStorage'), path: '/admin/settings', icon: Settings, required: ['settings:manage'] }
-  ], [t]);
+  ];
 
   const visibleMenuItems = allMenuItems.filter(item => {
     if (item.required.length === 0) return true;
