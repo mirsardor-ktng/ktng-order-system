@@ -117,20 +117,28 @@ export interface UnitBreakdown {
   label: string;
 }
 
-export function breakdownPacks(packs: number): UnitBreakdown {
+export interface BreakdownLabels {
+  cases: string;
+  blocks: string;
+}
+
+export function breakdownPacks(
+  packs: number,
+  labels: BreakdownLabels = { cases: 'кор.', blocks: 'бл.' }
+): UnitBreakdown {
   const normPacks = normalizePacks(packs);
   const cases = Math.floor(normPacks / PACKS_PER_CASE);
   const remainderPacks = normPacks % PACKS_PER_CASE;
   const blocks = Math.floor(remainderPacks / PACKS_PER_BLOCK);
 
   const parts: string[] = [];
-  if (cases > 0) parts.push(`${cases} ${getRussianPlural(cases, 'кор.', 'кор.', 'кор.')}`);
-  if (blocks > 0) parts.push(`${blocks} ${getRussianPlural(blocks, 'бл.', 'бл.', 'бл.')}`);
-  
+  if (cases > 0) parts.push(`${cases} ${labels.cases}`);
+  if (blocks > 0) parts.push(`${blocks} ${labels.blocks}`);
+
   return {
     cases,
     blocks,
     packs: normPacks,
-    label: parts.length > 0 ? parts.join(' и ') : '0 бл.'
+    label: parts.length > 0 ? parts.join(' / ') : `0 ${labels.blocks}`
   };
 }

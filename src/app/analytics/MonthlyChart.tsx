@@ -1,6 +1,7 @@
 'use client';
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { useTranslation } from '@/i18n/context';
 
 interface MonthlyChartProps {
   data: any[];
@@ -9,10 +10,12 @@ interface MonthlyChartProps {
 }
 
 export default function MonthlyChart({ data, chartType, onMonthSelect }: MonthlyChartProps) {
+  const { t } = useTranslation();
+
   const getFormatLabel = (value: number) => {
     if (chartType === 'revenue') {
-      if (value >= 1e6) return `${(value / 1e6).toFixed(1)} млн`;
-      if (value >= 1e3) return `${(value / 1e3).toFixed(0)} тыс`;
+      if (value >= 1e6) return `${(value / 1e6).toFixed(1)} ${t('analytics.millionShort')}`;
+      if (value >= 1e3) return `${(value / 1e3).toFixed(0)} ${t('analytics.thousandShort')}`;
       return `${value}`;
     }
     return `${value}`;
@@ -20,12 +23,12 @@ export default function MonthlyChart({ data, chartType, onMonthSelect }: Monthly
 
   const getTooltipFormatter = (value: any) => {
     if (chartType === 'revenue') {
-      return [`${Number(value).toLocaleString()} UZS`, 'Выручка'];
+      return [`${Number(value).toLocaleString()} UZS`, t('analytics.tooltipRevenue')];
     }
     if (chartType === 'orders') {
-      return [Number(value), 'Количество заказов'];
+      return [Number(value), t('analytics.tooltipOrders')];
     }
-    return [`${Number(value).toFixed(2)} кор.`, 'Объем коробок'];
+    return [`${Number(value).toFixed(2)} ${t('units.casesShort')}`, t('analytics.tooltipCases')];
   };
 
   const barColor = chartType === 'revenue' ? '#6366f1' : chartType === 'orders' ? '#06b6d4' : '#10b981';

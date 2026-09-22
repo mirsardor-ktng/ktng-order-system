@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, UserPlus, Key, Mail, Lock, CheckCircle2, ChevronRight, Loader2, Database } from 'lucide-react';
+import { useTranslation } from '@/i18n/context';
 
 export default function Home() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [setupRequired, setSetupRequired] = useState(false);
@@ -88,7 +90,7 @@ export default function Home() {
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center bg-background text-foreground">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <p className="mt-4 text-sm font-medium text-slate-400">Инициализация системы...</p>
+        <p className="mt-4 text-sm font-medium text-slate-400">{t('common.loading')}</p>
       </div>
     );
   }

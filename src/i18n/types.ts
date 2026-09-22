@@ -121,8 +121,10 @@ export interface OrdersTranslations {
   statusDraft: string;
   statusConfirmed: string;
   statusProcessing: string;
+  statusAssembly: string;
   statusShipped: string;
   statusDelivered: string;
+  statusCompleted: string;
   statusCancelled: string;
   orderNumber: string;
   orderDate: string;
@@ -149,6 +151,105 @@ export interface OrdersTranslations {
   bonusFromPromo: string;
   comment: string;
   commentPlaceholder: string;
+  loadingHistory: string;
+}
+
+export interface UnitsTranslations {
+  packs: string;
+  blocks: string;
+  cases: string;
+  packsShort: string;
+  blocksShort: string;
+  casesShort: string;
+  perPack: string;
+  perBlock: string;
+  perCase: string;
+  pricePerUnit: string;
+}
+
+export interface DashboardTranslations {
+  lastOrder: string;
+  noOrders: string;
+  firstOrderCall: string;
+  totalPurchaseVolume: string;
+  totalPurchaseDesc: string;
+  shippedProducts: string;
+  casesUnit: string;
+  blocksShippedDesc: string;
+  currentMonthPlan: string;
+  planNotSet: string;
+}
+
+export interface CatalogTranslations {
+  tags: string;
+  bonusesGranted: string;
+  giftVolume: string;
+  orderSavings: string;
+  selected: string;
+  bonus: string;
+  total: string;
+  sum: string;
+  promotionDiscount: string;
+  free: string;
+  from: string;
+  calculatingPromotions: string;
+  stockLimitExceeded: string;
+  stockLimitReached: string;
+  outOfStock: string;
+}
+
+export interface AnalyticsTranslations {
+  title: string;
+  customerSubtitle: string;
+  generalSubtitle: string;
+  averageOrder: string;
+  lastOrder: string;
+  daysAgo: string;
+  dayAgo: string;
+  daysAgoFew: string;
+  noData: string;
+  favoriteProduct: string;
+  ofYourOrders: string;
+  topGrowingProduct: string;
+  favoriteSkuShare: string;
+  accountsFor: string;
+  averageCheckDynamics: string;
+  comparedToLastMonth: string;
+  casesPurchased: string;
+  allTime: string;
+  thisYear: string;
+  thisMonth: string;
+  ordersHistory: string;
+  orders: string;
+  revenue: string;
+  averageCheck: string;
+  totalCases: string;
+  avgCases: string;
+  avgSkus: string;
+  uniqueSkus: string;
+  monthlyDynamics: string;
+  clickToDetail: string;
+  detailFor: string;
+  ordersHistoryFor: string;
+  skuSalesAll: string;
+  dealerRankings: string;
+  dealer: string;
+  loading: string;
+  skuSalesDetail: string;
+  searchSkuPlaceholder: string;
+  noProducts: string;
+  tableSku: string;
+  tableName: string;
+  tableCases: string;
+  tableRevenue: string;
+  tableShare: string;
+  tableGrowth: string;
+  pageOf: string;
+  tooltipRevenue: string;
+  tooltipOrders: string;
+  tooltipCases: string;
+  millionShort: string;
+  thousandShort: string;
 }
 
 export interface PromotionsTranslations {
@@ -211,6 +312,10 @@ export interface Dictionary {
   navigation: NavigationTranslations;
   products: ProductsTranslations;
   orders: OrdersTranslations;
+  units: UnitsTranslations;
+  dashboard: DashboardTranslations;
+  catalog: CatalogTranslations;
+  analytics: AnalyticsTranslations;
   promotions: PromotionsTranslations;
   profile: ProfileTranslations;
   errors: ErrorsTranslations;

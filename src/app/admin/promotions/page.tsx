@@ -6,6 +6,7 @@ import {
   Loader2, X, ChevronDown, ChevronRight, ToggleLeft, ToggleRight,
   Building2, ShoppingBag, Zap, ArrowRight, Hash, Calendar
 } from 'lucide-react';
+import { useTranslation } from '@/i18n/context';
 
 interface ProductRef {
   id: string;
@@ -81,6 +82,7 @@ const defaultForm: FormData = {
 };
 
 export default function PromotionsPage() {
+  const { t } = useTranslation();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [products, setProducts] = useState<ProductRef[]>([]);
   const [companies, setCompanies] = useState<CompanyRef[]>([]);
@@ -308,7 +310,7 @@ export default function PromotionsPage() {
     return (
       <div className="flex h-64 w-full flex-col items-center justify-center text-foreground">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-xs font-semibold text-slate-400">Загрузка акций...</p>
+        <p className="mt-4 text-xs font-semibold text-slate-400">{t('common.loading')}</p>
       </div>
     );
   }

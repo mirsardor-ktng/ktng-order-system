@@ -289,7 +289,7 @@ export default function CustomerCatalog() {
               setActiveDraftNumber(draftToEdit.orderNumber);
               setMessage({
                 type: 'success',
-                text: `Вы вошли в режим редактирования черновика ${draftToEdit.orderNumber}.`
+                text: `${t('orders.draft')}: ${draftToEdit.orderNumber}`
               });
               setLoadingDraft(false);
               return;
@@ -313,7 +313,7 @@ export default function CustomerCatalog() {
           }
           setCart(normalizedPreloadCart);
           localStorage.removeItem('b2b_cart_preload');
-          setMessage({ type: 'success', text: 'Заказ успешно загружен для повторного оформления.' });
+          setMessage({ type: 'success', text: t('common.success') });
           return;
         }
       } catch (err) {
@@ -373,7 +373,10 @@ export default function CustomerCatalog() {
 
     const blocks = packs / 10;
     const cases = packs / 500;
-    const breakdown = breakdownPacks(packs);
+    const breakdown = breakdownPacks(packs, {
+      cases: t('units.casesShort'),
+      blocks: t('units.blocksShort')
+    });
 
     return {
       packs,
@@ -382,7 +385,7 @@ export default function CustomerCatalog() {
       price,
       breakdownLabel: breakdown.label
     };
-  }, [cart, products]);
+  }, [cart, products, t]);
 
   // Memoized O(1) lookup map for calculated promotion order items
   const calculatedItemMap = useMemo(() => {
@@ -426,10 +429,10 @@ export default function CustomerCatalog() {
     if (nextVal > prod.stockPacks) {
       const maxAllowed = Math.floor(prod.stockPacks / 10) * 10;
       if (currentPacks >= maxAllowed) {
-        setMessage({ type: 'error', text: `Превышен доступный лимит запаса для позиции: ${prod.name}` });
+        setMessage({ type: 'error', text: t('catalog.stockLimitExceeded', { productName: prod.name }) });
         return;
       }
-      setMessage({ type: 'error', text: `Достигнут лимит запаса для позиции: ${prod.name}` });
+      setMessage({ type: 'error', text: t('catalog.stockLimitReached', { productName: prod.name }) });
       setCart((prev) => setGroupPacksInCart(prod, maxAllowed, prev));
       return;
     }
@@ -473,7 +476,7 @@ export default function CustomerCatalog() {
       packs = Math.floor(prod.stockPacks / 10) * 10;
       setMessage({
         type: 'error',
-        text: `Запрошенное количество превышает остатки на складе. Установлен доступный максимум.`
+        text: t('errors.insufficientStock')
       });
     }
 
@@ -498,7 +501,7 @@ export default function CustomerCatalog() {
       });
 
     if (items.length === 0) {
-      setMessage({ type: 'error', text: 'Для сохранения черновика добавьте товары в корзину.' });
+      setMessage({ type: 'error', text: t('products.cartEmpty') });
       setSaveDrafting(false);
       return;
     }
@@ -518,17 +521,17 @@ export default function CustomerCatalog() {
 
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: 'success', text: data.message || 'Черновик сохранён.' });
+        setMessage({ type: 'success', text: t('common.success') });
         if (!activeDraftId && data.order) {
           // If first time save, set to active edit mode
           setActiveDraftId(data.order.id);
           setActiveDraftNumber(data.order.orderNumber);
         }
       } else {
-        setMessage({ type: 'error', text: data.error });
+        setMessage({ type: 'error', text: localizeError(data.error) });
       }
     } catch (err) {
-      setMessage({ type: 'error', text: 'Ошибка при сохранении черновика.' });
+      setMessage({ type: 'error', text: t('errors.unknownError') });
     } finally {
       setSaveDrafting(false);
     }
@@ -625,7 +628,7 @@ export default function CustomerCatalog() {
       {loadingDraft && (
         <div className="rounded-2xl border border-indigo-500/25 bg-indigo-500/10 p-4 text-xs sm:text-sm text-indigo-300 flex items-center gap-3 animate-pulse">
           <Loader2 className="h-5 w-5 animate-spin flex-shrink-0 text-indigo-400" />
-          <span>Загружаем сохраненный черновик и восстанавливаем позиции...</span>
+          <span>{t('common.loading')}</span>
         </div>
       )}
 
@@ -635,7 +638,7 @@ export default function CustomerCatalog() {
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 flex-shrink-0" />
             <span>
-              Режим редактирования черновика <strong className="text-slate-100">{activeDraftNumber}</strong>. Изменения сохранятся в этот же черновик.
+              {t('orders.draft')}: <strong className="text-slate-100">{activeDraftNumber}</strong>
             </span>
           </div>
           <button
@@ -651,7 +654,7 @@ export default function CustomerCatalog() {
             }}
             className="text-xs text-slate-350 hover:text-white border border-white/10 hover:border-white/20 px-3 py-1.5 rounded-lg bg-slate-900/50 font-bold transition-all"
           >
-            Сбросить и выйти
+            {t('common.cancel')}
           </button>
         </div>
       )}
@@ -743,7 +746,7 @@ export default function CustomerCatalog() {
         {/* Tags filter line */}
         {allAvailableTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/5">
-            <span className="text-[10px] font-bold text-slate-550 uppercase tracking-wider">Теги:</span>
+            <span className="text-[10px] font-bold text-slate-550 uppercase tracking-wider">{t('catalog.tags')}:</span>
             <div className="flex flex-wrap gap-1.5">
               {allAvailableTags.map(tag => {
                 const isSelected = selectedTagFilters.includes(tag.id);
@@ -775,7 +778,7 @@ export default function CustomerCatalog() {
                   onClick={() => setSelectedTagFilters([])}
                   className="text-[10px] text-slate-400 hover:text-slate-200 px-2 py-1 underline font-bold"
                 >
-                  Сбросить
+                  {t('common.reset')}
                 </button>
               )}
             </div>
@@ -793,18 +796,18 @@ export default function CustomerCatalog() {
                   🎁
                 </span>
                 <h4 className="font-extrabold text-xs sm:text-sm text-emerald-300">
-                  Вам начислены акционные бонусы и коммерческие скидки!
+                  {t('catalog.bonusesGranted')}
                 </h4>
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-slate-300 pl-8">
                 {calculatedOrder.totalBonusBlocks > 0 && (
                   <span className="font-bold text-emerald-400">
-                    Подарочный объем: +{calculatedOrder.totalBonusBlocks} бл. ({calculatedOrder.totalBonusPacks} пач.) бесплатно
+                    {t('catalog.giftVolume')}: +{calculatedOrder.totalBonusBlocks} {t('units.blocksShort')} ({calculatedOrder.totalBonusPacks} {t('units.packsShort')}) {t('catalog.free')}
                   </span>
                 )}
                 {calculatedOrder.totalDiscount > 0 && (
                   <span className="font-bold text-cyan-300">
-                    Экономия на заказе: -{calculatedOrder.totalDiscount.toLocaleString()} so'm
+                    {t('catalog.orderSavings')}: -{calculatedOrder.totalDiscount.toLocaleString()} so'm
                   </span>
                 )}
               </div>
@@ -829,8 +832,8 @@ export default function CustomerCatalog() {
       {filteredProducts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center glass-panel rounded-2xl">
           <AlertCircle className="h-10 w-10 text-slate-500 mb-4" />
-          <h3 className="text-lg font-bold text-slate-300">Товары не найдены</h3>
-          <p className="text-xs text-slate-400 mt-2">Попробуйте ввести другой поисковый запрос или сбросить фильтры.</p>
+          <h3 className="text-lg font-bold text-slate-300">{t('products.noProductsFound')}</h3>
+          <p className="text-xs text-slate-400 mt-2">{t('common.empty')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
@@ -867,10 +870,10 @@ export default function CustomerCatalog() {
                 : minBasePrice * 500;
 
             const unitName = unitMode === 'PACKS'
-              ? 'пачку'
+              ? t('units.perPack')
               : unitMode === 'BLOCKS'
-                ? 'блок'
-                : 'коробку';
+                ? t('units.perBlock')
+                : t('units.perCase');
 
             let baseItemTotal = 0;
             const countedPrice = new Set<string>();
@@ -909,7 +912,7 @@ export default function CustomerCatalog() {
                       </span>
                       {calcItem && calcItem.bonusQuantityPacks > 0 && (
                         <span className="flex items-center gap-1 text-[8px] sm:text-[9px] font-extrabold px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 shadow-glow-sm">
-                          🎁 +{calcItem.bonusQuantityBlocks} бл.
+                          🎁 +{calcItem.bonusQuantityBlocks} {t('units.blocksShort')}
                         </span>
                       )}
                     </div>
@@ -946,7 +949,7 @@ export default function CustomerCatalog() {
                     {isOutOfStock && (
                       <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 text-center">
                         <span className="text-red-400 font-extrabold text-[10px] sm:text-xs uppercase tracking-wider px-2 sm:px-3 py-1 border border-red-500/20 rounded bg-red-500/10">
-                          Нет в наличии
+                          {t('catalog.outOfStock')}
                         </span>
                       </div>
                     )}
@@ -972,9 +975,9 @@ export default function CustomerCatalog() {
 
                   {/* Price display per units (so'm currency) */}
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline gap-0.5 mt-1.5 mb-2.5 sm:mb-4">
-                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Цена за {unitName}:</span>
+                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-semibold uppercase tracking-wider">{t('units.pricePerUnit', { unit: unitName })}:</span>
                     <span className="font-bold text-xs sm:text-sm text-slate-100">
-                      {hasPriceRange ? `от ${displayPrice.toLocaleString()}` : displayPrice.toLocaleString()} so'm
+                      {hasPriceRange ? `${t('catalog.from')} ${displayPrice.toLocaleString()}` : displayPrice.toLocaleString()} so'm
                     </span>
                   </div>
                 </div>
@@ -1012,7 +1015,7 @@ export default function CustomerCatalog() {
                   {inCart && (
                     <div className="space-y-1.5 pt-1">
                       <div className="flex justify-between items-center text-[10px] text-slate-400 px-1 font-semibold">
-                        <span>Сумма:</span>
+                        <span>{t('catalog.sum')}:</span>
                         <div className="text-right">
                           {calcItem && calcItem.promotionDiscount > 0 && (
                             <span className="line-through text-slate-500 mr-1.5 text-[9px]">
@@ -1028,7 +1031,7 @@ export default function CustomerCatalog() {
                       {/* Promotion Discount Badge */}
                       {calcItem && calcItem.promotionDiscount > 0 && (
                         <div className="flex justify-between items-center text-[9px] px-1 text-emerald-400 font-bold">
-                          <span>Скидка по акции:</span>
+                          <span>{t('catalog.promotionDiscount')}:</span>
                           <span>-{Math.round(calcItem.promotionDiscount).toLocaleString()} so'm</span>
                         </div>
                       )}
@@ -1037,21 +1040,21 @@ export default function CustomerCatalog() {
                       {calcItem && calcItem.bonusQuantityPacks > 0 && (
                         <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-2 text-[10px] space-y-0.5">
                           <div className="flex justify-between text-slate-300">
-                            <span>Выбрано:</span>
+                            <span>{t('catalog.selected')}:</span>
                             <span className="font-bold text-white">
-                              {unitMode === 'BLOCKS' ? `${calcItem.baseQuantityBlocks} бл.` : unitMode === 'CASES' ? `${calcItem.baseQuantityCases} кор.` : `${calcItem.baseQuantityPacks} пач.`}
+                              {unitMode === 'BLOCKS' ? `${calcItem.baseQuantityBlocks} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${calcItem.baseQuantityCases} ${t('units.casesShort')}` : `${calcItem.baseQuantityPacks} ${t('units.packsShort')}`}
                             </span>
                           </div>
                           <div className="flex justify-between text-emerald-400 font-bold">
-                            <span>Бонус:</span>
+                            <span>{t('catalog.bonus')}:</span>
                             <span>
-                              +{unitMode === 'BLOCKS' ? `${calcItem.bonusQuantityBlocks} бл.` : unitMode === 'CASES' ? `${calcItem.bonusQuantityCases} кор.` : `${calcItem.bonusQuantityPacks} пач.`}
+                              +{unitMode === 'BLOCKS' ? `${calcItem.bonusQuantityBlocks} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${calcItem.bonusQuantityCases} ${t('units.casesShort')}` : `${calcItem.bonusQuantityPacks} ${t('units.packsShort')}`}
                             </span>
                           </div>
                           <div className="flex justify-between text-amber-300 font-extrabold border-t border-amber-500/20 pt-0.5">
-                            <span>Итого:</span>
+                            <span>{t('catalog.total')}:</span>
                             <span>
-                              {unitMode === 'BLOCKS' ? `${calcItem.totalQuantityBlocks} бл.` : unitMode === 'CASES' ? `${calcItem.totalQuantityCases} кор.` : `${calcItem.totalQuantityPacks} пач.`}
+                              {unitMode === 'BLOCKS' ? `${calcItem.totalQuantityBlocks} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${calcItem.totalQuantityCases} ${t('units.casesShort')}` : `${calcItem.totalQuantityPacks} ${t('units.packsShort')}`}
                             </span>
                           </div>
                         </div>
@@ -1086,7 +1089,7 @@ export default function CustomerCatalog() {
                   <span>{t('orders.orderSummary')}:</span>
                   <span className="text-primary-focus font-bold">
                     {calculatedOrder
-                      ? `${calculatedOrder.totalBlocks} бл. (${calculatedOrder.totalCases} кор.)`
+                      ? `${calculatedOrder.totalBlocks} ${t('units.blocksShort')} (${calculatedOrder.totalCases} ${t('units.casesShort')})`
                       : orderTotals.breakdownLabel}
                   </span>
                   {calculatedOrder && calculatedOrder.totalBonusBlocks > 0 && (

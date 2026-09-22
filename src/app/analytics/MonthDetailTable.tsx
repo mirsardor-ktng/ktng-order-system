@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { Search, ChevronUp, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-react';
+import { useTranslation } from '@/i18n/context';
 
 interface ProductAnalyticsItem {
   productId: string;
@@ -18,6 +19,7 @@ interface MonthDetailTableProps {
 }
 
 export default function MonthDetailTable({ products }: MonthDetailTableProps) {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<'sku' | 'name' | 'cases' | 'revenue' | 'growth'>('revenue');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -80,13 +82,13 @@ export default function MonthDetailTable({ products }: MonthDetailTableProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Детализация продаж по SKU</h4>
+        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('analytics.skuSalesDetail')}</h4>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
             className="w-full rounded-xl pl-9 pr-4 py-2 text-xs glass-input"
-            placeholder="Поиск по SKU или наименованию..."
+            placeholder={t('analytics.searchSkuPlaceholder')}
             value={searchTerm}
             onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
           />
@@ -94,7 +96,7 @@ export default function MonthDetailTable({ products }: MonthDetailTableProps) {
       </div>
 
       {paginatedProducts.length === 0 ? (
-        <div className="text-center py-8 text-xs text-slate-500">Товары не найдены.</div>
+        <div className="text-center py-8 text-xs text-slate-500">{t('analytics.noProducts')}</div>
       ) : (
         <>
           <div className="glass-panel rounded-2xl overflow-hidden border border-white/5">
@@ -103,20 +105,20 @@ export default function MonthDetailTable({ products }: MonthDetailTableProps) {
                 <thead>
                   <tr className="border-b border-white/5 bg-slate-950/40 text-[10px] text-slate-400 uppercase tracking-wider font-extrabold cursor-pointer select-none">
                     <th className="py-3 px-4 hover:text-slate-200" onClick={() => handleSort('sku')}>
-                      <div className="flex items-center">SKU {renderSortIcon('sku')}</div>
+                      <div className="flex items-center">{t('analytics.tableSku')} {renderSortIcon('sku')}</div>
                     </th>
                     <th className="py-3 px-4 hover:text-slate-200" onClick={() => handleSort('name')}>
-                      <div className="flex items-center">Наименование {renderSortIcon('name')}</div>
+                      <div className="flex items-center">{t('analytics.tableName')} {renderSortIcon('name')}</div>
                     </th>
                     <th className="py-3 px-4 hover:text-slate-200 text-right" onClick={() => handleSort('cases')}>
-                      <div className="flex items-center justify-end">Коробок {renderSortIcon('cases')}</div>
+                      <div className="flex items-center justify-end">{t('analytics.tableCases')} {renderSortIcon('cases')}</div>
                     </th>
                     <th className="py-3 px-4 hover:text-slate-200 text-right" onClick={() => handleSort('revenue')}>
-                      <div className="flex items-center justify-end">Выручка {renderSortIcon('revenue')}</div>
+                      <div className="flex items-center justify-end">{t('analytics.tableRevenue')} {renderSortIcon('revenue')}</div>
                     </th>
-                    <th className="py-3 px-4 text-center">Доля</th>
+                    <th className="py-3 px-4 text-center">{t('analytics.tableShare')}</th>
                     <th className="py-3 px-4 hover:text-slate-200 text-center" onClick={() => handleSort('growth')}>
-                      <div className="flex items-center justify-center">МоМ Рост {renderSortIcon('growth')}</div>
+                      <div className="flex items-center justify-center">{t('analytics.tableGrowth')} {renderSortIcon('growth')}</div>
                     </th>
                   </tr>
                 </thead>
@@ -125,7 +127,7 @@ export default function MonthDetailTable({ products }: MonthDetailTableProps) {
                     <tr key={p.productId} className="hover:bg-white/5 transition-all">
                       <td className="py-3 px-4 font-mono font-bold text-slate-400">{p.sku}</td>
                       <td className="py-3 px-4 font-bold text-slate-200">{p.name}</td>
-                      <td className="py-3 px-4 text-right font-extrabold text-slate-100">{p.cases} кор.</td>
+                      <td className="py-3 px-4 text-right font-extrabold text-slate-100">{p.cases} {t('units.casesShort')}</td>
                       <td className="py-3 px-4 text-right font-extrabold text-emerald-400">{p.revenue.toLocaleString()} so'm</td>
                       <td className="py-3 px-4 text-center">
                         <span className="text-[10px] text-slate-450 font-bold bg-white/5 px-2 py-0.5 rounded-md border border-white/5">{p.share}%</span>
@@ -142,7 +144,7 @@ export default function MonthDetailTable({ products }: MonthDetailTableProps) {
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-2">
               <span className="text-[10px] text-slate-400 font-semibold">
-                Страница {currentPage} из {totalPages}
+                {t('analytics.pageOf', { current: currentPage, total: totalPages })}
               </span>
               <div className="flex gap-2">
                 <button

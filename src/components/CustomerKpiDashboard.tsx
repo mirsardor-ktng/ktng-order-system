@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Clock, DollarSign, PackageCheck, Target, TrendingUp, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useTranslation } from '@/i18n/context';
 
 interface OrderItem {
   id: string;
@@ -29,6 +30,7 @@ interface CustomerKpiDashboardProps {
 }
 
 export default function CustomerKpiDashboard({ orders: propOrders, company: propCompany, className = '' }: CustomerKpiDashboardProps) {
+  const { t, language } = useTranslation();
   const [orders, setOrders] = useState<OrderItem[]>(propOrders || []);
   const [company, setCompany] = useState<UserCompany | null>(propCompany || null);
   const [loading, setLoading] = useState(!propOrders || !propCompany);
@@ -116,26 +118,28 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'NEW':
-        return { text: 'Новый', color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' };
+        return { text: t('orders.statusNew'), color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' };
       case 'ASSEMBLY':
-        return { text: 'Сборка', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
+        return { text: t('orders.statusAssembly'), color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
       case 'SHIPPED':
-        return { text: 'Отгружен', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' };
+        return { text: t('orders.statusShipped'), color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' };
       case 'COMPLETED':
-        return { text: 'Завершен', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
+        return { text: t('orders.statusCompleted'), color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
       case 'CANCELLED':
-        return { text: 'Отменен', color: 'bg-red-500/10 text-red-400 border-red-500/20' };
+        return { text: t('orders.statusCancelled'), color: 'bg-red-500/10 text-red-400 border-red-500/20' };
       case 'DRAFT':
-        return { text: 'Черновик', color: 'bg-slate-700/30 text-slate-400 border-slate-700/50' };
+        return { text: t('orders.statusDraft'), color: 'bg-slate-700/30 text-slate-400 border-slate-700/50' };
       default:
         return { text: status, color: 'bg-slate-700/30 text-slate-400 border-slate-700/50' };
     }
   };
 
+  const locale = language === 'uz' ? 'uz-UZ' : language === 'en' ? 'en-US' : 'ru-RU';
+
   const formatDateTime = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
-      return d.toLocaleString('ru-RU', {
+      return d.toLocaleString(locale, {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -152,7 +156,7 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
       {/* ── CARD 1: Последний заказ ── */}
       <div className="glass-panel relative overflow-hidden rounded-2xl p-5 border-l-4 border-l-cyan-500 transition-all hover:bg-white/[0.04]">
         <div className="flex justify-between items-center text-slate-400">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Последний заказ</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">{t('dashboard.lastOrder')}</span>
           <div className="h-7 w-7 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400">
             <Clock className="h-4 w-4" />
           </div>
@@ -172,8 +176,8 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
           </div>
         ) : (
           <div className="mt-2.5 space-y-1">
-            <div className="text-sm font-bold text-slate-400">Заказов пока нет</div>
-            <p className="text-[10px] text-slate-500">Оформите ваш первый оптовый заказ</p>
+            <div className="text-sm font-bold text-slate-400">{t('dashboard.noOrders')}</div>
+            <p className="text-[10px] text-slate-500">{t('dashboard.firstOrderCall')}</p>
           </div>
         )}
       </div>
@@ -181,7 +185,7 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
       {/* ── CARD 2: Общий объем закупа ── */}
       <div className="glass-panel relative overflow-hidden rounded-2xl p-5 border-l-4 border-l-emerald-500 transition-all hover:bg-white/[0.04]">
         <div className="flex justify-between items-center text-slate-400">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Общий объем закупа</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">{t('dashboard.totalPurchaseVolume')}</span>
           <div className="h-7 w-7 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
             <DollarSign className="h-4 w-4" />
           </div>
@@ -189,16 +193,16 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
 
         <div className="mt-2.5 space-y-1">
           <div className="text-base sm:text-lg font-extrabold text-emerald-400 truncate">
-            {stats.totalPurchaseVolume.toLocaleString('ru-RU')} <span className="text-xs font-semibold text-emerald-400/80">so'm</span>
+            {stats.totalPurchaseVolume.toLocaleString(locale)} <span className="text-xs font-semibold text-emerald-400/80">so'm</span>
           </div>
-          <p className="text-[10px] text-slate-400 font-medium">Сумма всех оформленных заказов</p>
+          <p className="text-[10px] text-slate-400 font-medium">{t('dashboard.totalPurchaseDesc')}</p>
         </div>
       </div>
 
       {/* ── CARD 3: Общее отгруженное количество ── */}
       <div className="glass-panel relative overflow-hidden rounded-2xl p-5 border-l-4 border-l-indigo-500 transition-all hover:bg-white/[0.04]">
         <div className="flex justify-between items-center text-slate-400">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Отгружено продукции</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">{t('dashboard.shippedProducts')}</span>
           <div className="h-7 w-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
             <PackageCheck className="h-4 w-4" />
           </div>
@@ -206,10 +210,10 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
 
         <div className="mt-2.5 space-y-1">
           <div className="text-base sm:text-lg font-extrabold text-slate-100 truncate">
-            {stats.totalShippedCases.toLocaleString('ru-RU')} <span className="text-xs font-semibold text-slate-400">коробок</span>
+            {stats.totalShippedCases.toLocaleString(locale)} <span className="text-xs font-semibold text-slate-400">{t('dashboard.casesUnit')}</span>
           </div>
           <p className="text-[10px] text-slate-400 font-medium">
-            {stats.totalShippedBlocks.toLocaleString('ru-RU')} блоков (отгруженные заказы)
+            {stats.totalShippedBlocks.toLocaleString(locale)} {t('dashboard.blocksShippedDesc')}
           </p>
         </div>
       </div>
@@ -217,7 +221,7 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
       {/* ── CARD 4: План на текущий месяц ── */}
       <div className="glass-panel relative overflow-hidden rounded-2xl p-5 border-l-4 border-l-amber-500 transition-all hover:bg-white/[0.04]">
         <div className="flex justify-between items-center text-slate-400">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">План на текущий месяц</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">{t('dashboard.currentMonthPlan')}</span>
           <div className="h-7 w-7 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
             <Target className="h-4 w-4" />
           </div>
@@ -228,11 +232,11 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
             <div className="text-base sm:text-lg font-extrabold text-slate-100">
               {stats.targetCases > 0 ? (
                 <>
-                  {stats.currentMonthCases.toLocaleString('ru-RU')} <span className="text-xs text-slate-400 font-normal">/ {stats.targetCases.toLocaleString('ru-RU')} кор.</span>
+                  {stats.currentMonthCases.toLocaleString(locale)} <span className="text-xs text-slate-400 font-normal">/ {stats.targetCases.toLocaleString(locale)} {t('units.casesShort')}</span>
                 </>
               ) : (
                 <>
-                  {stats.currentMonthCases.toLocaleString('ru-RU')} <span className="text-xs text-slate-400 font-normal">кор.</span>
+                  {stats.currentMonthCases.toLocaleString(locale)} <span className="text-xs text-slate-400 font-normal">{t('units.casesShort')}</span>
                 </>
               )}
             </div>
@@ -252,7 +256,7 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
               />
             </div>
           ) : (
-            <p className="text-[10px] text-slate-500">План компании на месяц не установлен</p>
+            <p className="text-[10px] text-slate-500">{t('dashboard.planNotSet')}</p>
           )}
         </div>
       </div>

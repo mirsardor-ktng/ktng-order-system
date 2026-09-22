@@ -7,6 +7,7 @@ import {
   BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw
 } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
+import { useTranslation } from '@/i18n/context';
 
 interface CommentItem {
   id: string;
@@ -75,6 +76,7 @@ interface EditOrderItemState {
 }
 
 export default function SellerDashboard() {
+  const { t } = useTranslation();
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -437,7 +439,7 @@ export default function SellerDashboard() {
     return (
       <div className="flex h-64 w-full flex-col items-center justify-center text-foreground">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-xs font-semibold text-slate-400">Синхронизируем базу данных заказов...</p>
+        <p className="mt-4 text-xs font-semibold text-slate-400">{t('common.loading')}</p>
       </div>
     );
   }
@@ -633,7 +635,10 @@ export default function SellerDashboard() {
                         <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-2">Перечень закупки:</span>
                         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
                           {order.items.map((item) => {
-                            const breakdown = breakdownPacks(item.quantityPacks);
+                            const breakdown = breakdownPacks(item.quantityPacks, {
+                              cases: t('units.casesShort'),
+                              blocks: t('units.blocksShort')
+                            });
                             return (
                               <div key={item.id} className="bg-slate-950/20 border border-white/5 rounded-xl p-2.5 flex justify-between items-center text-xs">
                                 <div>

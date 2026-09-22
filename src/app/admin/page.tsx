@@ -7,6 +7,7 @@ import {
   ArrowRight, ShieldCheck, Database, Calendar, CheckCircle2, 
   Clock, AlertCircle, Banknote, Layers, Package, Loader2
 } from 'lucide-react';
+import { useTranslation } from '@/i18n/context';
 
 interface Order {
   id: string;
@@ -30,6 +31,7 @@ interface AuditLog {
 }
 
 export default function AdminOverview() {
+  const { t } = useTranslation();
   const [metrics, setMetrics] = useState({
     totalUsers: 0,
     totalOrders: 0,
@@ -133,7 +135,7 @@ export default function AdminOverview() {
     return (
       <div className="flex h-64 w-full flex-col items-center justify-center text-foreground">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-xs font-semibold text-slate-400">Загружаем аналитическую сводку...</p>
+        <p className="mt-4 text-xs font-semibold text-slate-400">{t('common.loading')}</p>
       </div>
     );
   }

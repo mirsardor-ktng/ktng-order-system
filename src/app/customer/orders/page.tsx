@@ -75,8 +75,9 @@ interface Order {
 function CustomerOrdersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { t, formatCurrency } = useTranslation();
+  const { t, language } = useTranslation();
   const filterMonth = searchParams.get('month'); // e.g. "2026-06"
+  const locale = language === 'uz' ? 'uz-UZ' : language === 'en' ? 'en-US' : 'ru-RU';
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,7 +274,7 @@ function CustomerOrdersContent() {
 
         <div className="space-y-4">
           {filteredOrders.map((order) => {
-            const date = new Date(order.createdAt).toLocaleString('ru-RU', {
+            const date = new Date(order.createdAt).toLocaleString(locale, {
               day: '2-digit',
               month: '2-digit',
               year: 'numeric',
@@ -311,8 +312,11 @@ function CustomerOrdersContent() {
                       const sku = item.skuSnapshot || item.product?.sku || 'SKU';
 
                       const quantityLabel = bonusBlocks > 0
-                        ? `${totalBlocks} бл. (${baseBlocks} + ${bonusBlocks} ${t('orders.bonusItem')})`
-                        : breakdownPacks(item.quantityPacks).label;
+                        ? `${totalBlocks} ${t('units.blocksShort')} (${baseBlocks} + ${bonusBlocks} ${t('orders.bonusItem')})`
+                        : breakdownPacks(item.quantityPacks, {
+                            cases: t('units.casesShort'),
+                            blocks: t('units.blocksShort')
+                          }).label;
 
                       return (
                         <div key={item.id} className="bg-slate-950/30 border border-white/5 rounded-xl p-3 flex justify-between items-center text-xs">
@@ -344,7 +348,7 @@ function CustomerOrdersContent() {
                   {order.comments && order.comments.length > 0 ? (
                     <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                       {order.comments.map((comment) => {
-                        const commentDate = new Date(comment.createdAt).toLocaleString('ru-RU', {
+                        const commentDate = new Date(comment.createdAt).toLocaleString(locale, {
                           day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
                         });
                         return (
@@ -364,7 +368,7 @@ function CustomerOrdersContent() {
                 {/* Bottom Actions panel */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-4 border-t border-white/5 w-full">
                   <div className="text-xs text-slate-400 font-semibold">
-                    {t('common.total')}: <span className="text-slate-200 font-bold">{order.totalBlocks} бл.</span> и <span className="text-slate-200 font-bold">{order.totalCases} кор.</span>
+                    {t('common.total')}: <span className="text-slate-200 font-bold">{order.totalBlocks} {t('units.blocksShort')}</span> / <span className="text-slate-200 font-bold">{order.totalCases} {t('units.casesShort')}</span>
                   </div>
 
                   <div className="flex gap-2.5 w-full sm:w-auto">
@@ -414,14 +418,19 @@ function CustomerOrdersContent() {
   );
 }
 
+function OrdersFallback() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-64 w-full flex-col items-center justify-center text-foreground">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="mt-4 text-xs font-semibold text-slate-400">{t('orders.loadingHistory')}</p>
+    </div>
+  );
+}
+
 export default function CustomerOrders() {
   return (
-    <Suspense fallback={
-      <div className="flex h-64 w-full flex-col items-center justify-center text-foreground">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-xs font-semibold text-slate-400">Загрузка истории...</p>
-      </div>
-    }>
+    <Suspense fallback={<OrdersFallback />}>
       <CustomerOrdersContent />
     </Suspense>
   );

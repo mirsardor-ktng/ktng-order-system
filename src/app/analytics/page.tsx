@@ -16,6 +16,7 @@ import {
   Star,
   Clock,
   ArrowRight,
+  ArrowLeft,
   Loader2,
   X,
   Users,
@@ -23,6 +24,8 @@ import {
   CalendarDays,
   Box,
 } from "lucide-react";
+import { useTranslation } from "@/i18n/context";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 // Lazy-load heavy chart and table components
 const MonthlyChart = dynamic(() => import("./MonthlyChart"), {
@@ -91,6 +94,7 @@ interface AnalyticsData {
 
 export default function AnalyticsPage() {
   const router = useRouter();
+  const { t, language } = useTranslation();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<"revenue" | "orders" | "cases">(
@@ -145,7 +149,7 @@ export default function AnalyticsPage() {
       <div className="flex h-screen w-full flex-col items-center justify-center">
         <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
         <p className="mt-4 text-sm font-semibold text-slate-400">
-          Загрузка аналитики продаж...
+          {t('analytics.loading')}
         </p>
       </div>
     );
@@ -158,16 +162,29 @@ export default function AnalyticsPage() {
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-4 sm:p-6 lg:p-8 space-y-8 animate-fade-in">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 flex items-center gap-3">
-            <BarChart3 className="h-7 w-7 text-indigo-500" />
-            <span>Аналитика продаж</span>
-          </h1>
-          <p className="text-xs text-slate-400 mt-1 font-semibold">
-            {isCustomer
-              ? "Ваша персональная статистика закупок"
-              : "Общая статистика по всем дилерам"}
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.back()}
+            className="p-2 rounded-xl bg-slate-900/60 border border-white/5 text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+            title={t('common.back')}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 flex items-center gap-3">
+              <BarChart3 className="h-7 w-7 text-indigo-500" />
+              <span>{t('analytics.title')}</span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-1 font-semibold">
+              {isCustomer
+                ? t('analytics.customerSubtitle')
+                : t('analytics.generalSubtitle')}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher />
         </div>
       </div>
 
@@ -180,14 +197,14 @@ export default function AnalyticsPage() {
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-indigo-500 hover:border-l-indigo-400 transition-all">
               <div className="flex justify-between items-center text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">
-                  Ваш средний заказ
+                  {t('analytics.averageOrder')}
                 </span>
                 <Package className="h-4 w-4 text-indigo-400" />
               </div>
               <span className="block mt-2 text-2xl font-extrabold text-slate-100">
                 {insights.averageOrderCases}{" "}
                 <span className="text-sm text-slate-400 font-bold">
-                  коробок
+                  {t('dashboard.casesUnit')}
                 </span>
               </span>
             </div>
@@ -196,14 +213,18 @@ export default function AnalyticsPage() {
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-cyan-500 hover:border-l-cyan-400 transition-all">
               <div className="flex justify-between items-center text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">
-                  Последний заказ
+                  {t('analytics.lastOrder')}
                 </span>
                 <Clock className="h-4 w-4 text-cyan-400" />
               </div>
               <span className="block mt-2 text-2xl font-extrabold text-slate-100">
                 {insights.lastOrderDaysAgo !== null
-                  ? `${insights.lastOrderDaysAgo} ${insights.lastOrderDaysAgo === 1 ? "день" : insights.lastOrderDaysAgo < 5 ? "дня" : "дней"} назад`
-                  : "Нет данных"}
+                  ? `${insights.lastOrderDaysAgo} ${
+                      language === 'ru'
+                        ? (insights.lastOrderDaysAgo === 1 ? t('analytics.dayAgo') : insights.lastOrderDaysAgo < 5 ? t('analytics.daysAgoFew') : t('analytics.daysAgo'))
+                        : t('analytics.daysAgo')
+                    }`
+                  : t('analytics.noData')}
               </span>
             </div>
 
@@ -211,7 +232,7 @@ export default function AnalyticsPage() {
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-amber-500 hover:border-l-amber-400 transition-all">
               <div className="flex justify-between items-center text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">
-                  Чаще всего Вы покупаете
+                  {t('analytics.favoriteProduct')}
                 </span>
                 <Star className="h-4 w-4 text-amber-400" />
               </div>
@@ -219,7 +240,7 @@ export default function AnalyticsPage() {
                 {insights.favoriteProduct || "—"}
               </span>
               <span className="block mt-1 text-[10px] text-slate-500 font-semibold">
-                {insights.favoriteProductShare}% ваших заказов
+                {insights.favoriteProductShare}% {t('analytics.ofYourOrders')}
               </span>
             </div>
 
@@ -228,7 +249,7 @@ export default function AnalyticsPage() {
               <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-emerald-500 hover:border-l-emerald-400 transition-all">
                 <div className="flex justify-between items-center text-slate-400">
                   <span className="text-[10px] font-bold uppercase tracking-wider">
-                    Самый быстрорастущий товар
+                    {t('analytics.topGrowingProduct')}
                   </span>
                   <TrendingUp className="h-4 w-4 text-emerald-400" />
                 </div>
@@ -245,7 +266,7 @@ export default function AnalyticsPage() {
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-violet-500 hover:border-l-violet-400 transition-all">
               <div className="flex justify-between items-center text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">
-                  Доля любимого SKU
+                  {t('analytics.favoriteSkuShare')}
                 </span>
                 <Percent className="h-4 w-4 text-violet-400" />
               </div>
@@ -253,7 +274,7 @@ export default function AnalyticsPage() {
                 {insights.favoriteProductShare}%
               </span>
               <span className="block mt-1 text-[10px] text-slate-500 font-semibold">
-                приходится на {insights.favoriteProduct || "—"}
+                {t('analytics.accountsFor')} {insights.favoriteProduct || "—"}
               </span>
             </div>
 
@@ -261,7 +282,7 @@ export default function AnalyticsPage() {
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-rose-500 hover:border-l-rose-400 transition-all">
               <div className="flex justify-between items-center text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">
-                  Динамика среднего чека
+                  {t('analytics.averageCheckDynamics')}
                 </span>
                 {insights.averageCheckTrend === "UP" ? (
                   <TrendingUp className="h-4 w-4 text-emerald-400" />
@@ -288,7 +309,7 @@ export default function AnalyticsPage() {
                       : "="}
                 </span>
                 <span className="text-xs text-slate-400 font-semibold">
-                  по сравнению с прошлым месяцем
+                  {t('analytics.comparedToLastMonth')}
                 </span>
               </div>
             </div>
@@ -297,14 +318,14 @@ export default function AnalyticsPage() {
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-sky-500 hover:border-l-sky-400 transition-all sm:col-span-2 lg:col-span-1">
               <div className="flex justify-between items-center text-slate-400">
                 <span className="text-[10px] font-bold uppercase tracking-wider">
-                  Куплено коробок
+                  {t('analytics.casesPurchased')}
                 </span>
                 <Box className="h-4 w-4 text-sky-400" />
               </div>
               <div className="mt-3 grid grid-cols-3 gap-4">
                 <div>
                   <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                    За всё время
+                    {t('analytics.allTime')}
                   </span>
                   <span className="block text-lg font-extrabold text-slate-100 mt-0.5">
                     {insights.casesAllTime}
@@ -312,7 +333,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                    За год
+                    {t('analytics.thisYear')}
                   </span>
                   <span className="block text-lg font-extrabold text-slate-100 mt-0.5">
                     {insights.casesThisYear}
@@ -320,7 +341,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                    За месяц
+                    {t('analytics.thisMonth')}
                   </span>
                   <span className="block text-lg font-extrabold text-slate-100 mt-0.5">
                     {insights.casesThisMonth}
@@ -336,7 +357,7 @@ export default function AnalyticsPage() {
               <div className="text-center">
                 <ArrowRight className="h-6 w-6 text-indigo-400 mx-auto group-hover:translate-x-1 transition-transform" />
                 <span className="block mt-2 text-xs font-bold text-indigo-400 group-hover:text-indigo-300">
-                  История заказов
+                  {t('analytics.ordersHistory')}
                 </span>
               </div>
             </div>
@@ -350,7 +371,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-indigo-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              Заказы
+              {t('analytics.orders')}
             </span>
             <Hash className="h-4 w-4 text-indigo-400" />
           </div>
@@ -362,7 +383,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-emerald-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              Выручка
+              {t('analytics.revenue')}
             </span>
             <DollarSign className="h-4 w-4 text-emerald-400" />
           </div>
@@ -377,7 +398,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-cyan-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              Средний чек
+              {t('analytics.averageCheck')}
             </span>
             <DollarSign className="h-4 w-4 text-cyan-400" />
           </div>
@@ -389,7 +410,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-amber-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              Всего коробок
+              {t('analytics.totalCases')}
             </span>
             <Package className="h-4 w-4 text-amber-400" />
           </div>
@@ -401,7 +422,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-violet-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              Ср. коробок
+              {t('analytics.avgCases')}
             </span>
             <Layers className="h-4 w-4 text-violet-400" />
           </div>
@@ -413,7 +434,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-rose-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              Ср. SKU
+              {t('analytics.avgSkus')}
             </span>
             <ShoppingBag className="h-4 w-4 text-rose-400" />
           </div>
@@ -425,7 +446,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-sky-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              Уник. SKU
+              {t('analytics.uniqueSkus')}
             </span>
             <Layers className="h-4 w-4 text-sky-400" />
           </div>
@@ -440,16 +461,16 @@ export default function AnalyticsPage() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h2 className="text-base font-bold text-slate-200 flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-indigo-400" />
-            <span>Динамика продаж по месяцам</span>
+            <span>{t('analytics.monthlyDynamics')}</span>
           </h2>
 
           {/* Chart type toggle */}
           <div className="flex items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5">
             {(
               [
-                { key: "revenue", label: "Выручка" },
-                { key: "orders", label: "Заказы" },
-                { key: "cases", label: "Коробки" },
+                { key: "revenue", label: t('analytics.revenue') },
+                { key: "orders", label: t('analytics.orders') },
+                { key: "cases", label: t('analytics.totalCases') },
               ] as const
             ).map((item) => (
               <button
@@ -474,7 +495,7 @@ export default function AnalyticsPage() {
         />
 
         <p className="text-[10px] text-slate-500 font-semibold text-center">
-          Нажмите на колонку месяца для детализации
+          {t('analytics.clickToDetail')}
         </p>
       </div>
 
@@ -485,7 +506,7 @@ export default function AnalyticsPage() {
             <h2 className="text-base font-bold text-slate-200 flex items-center gap-2">
               <CalendarDays className="h-5 w-5 text-cyan-400" />
               <span>
-                Детализация за{" "}
+                {t('analytics.detailFor')}{" "}
                 <span className="text-cyan-400">
                   {selectedMonth.month}
                 </span>
@@ -503,7 +524,7 @@ export default function AnalyticsPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="bg-slate-950/40 border border-white/5 rounded-xl p-4">
               <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                Заказы
+                {t('analytics.orders')}
               </span>
               <span className="block text-xl font-extrabold text-slate-100 mt-1">
                 {selectedMonth.orders}
@@ -511,7 +532,7 @@ export default function AnalyticsPage() {
             </div>
             <div className="bg-slate-950/40 border border-white/5 rounded-xl p-4">
               <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                Средний чек
+                {t('analytics.averageCheck')}
               </span>
               <span className="block text-xl font-extrabold text-slate-100 mt-1">
                 {selectedMonth.orders > 0
@@ -523,7 +544,7 @@ export default function AnalyticsPage() {
             </div>
             <div className="bg-slate-950/40 border border-white/5 rounded-xl p-4">
               <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                Коробок
+                {t('analytics.totalCases')}
               </span>
               <span className="block text-xl font-extrabold text-slate-100 mt-1">
                 {Math.round(selectedMonth.cases * 100) / 100}
@@ -531,7 +552,7 @@ export default function AnalyticsPage() {
             </div>
             <div className="bg-slate-950/40 border border-white/5 rounded-xl p-4">
               <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                Выручка
+                {t('analytics.revenue')}
               </span>
               <span className="block text-xl font-extrabold text-emerald-400 mt-1">
                 {selectedMonth.revenue.toLocaleString()}
@@ -539,7 +560,7 @@ export default function AnalyticsPage() {
             </div>
             <div className="bg-slate-950/40 border border-white/5 rounded-xl p-4">
               <span className="block text-[9px] text-slate-500 font-bold uppercase">
-                Уникальных SKU
+                {t('analytics.uniqueSkus')}
               </span>
               <span className="block text-xl font-extrabold text-slate-100 mt-1">
                 {monthProducts.length}
@@ -568,7 +589,7 @@ export default function AnalyticsPage() {
                 className="btn-primary flex items-center gap-2 px-5 py-2.5 text-xs"
               >
                 <span>
-                  История заказов за {selectedMonth.month}
+                  {t('analytics.ordersHistoryFor')} {selectedMonth.month}
                 </span>
                 <ArrowRight className="h-4 w-4" />
               </button>
@@ -582,7 +603,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-3xl p-5 sm:p-6 border border-white/5 space-y-4">
           <h2 className="text-base font-bold text-slate-200 flex items-center gap-2">
             <ShoppingBag className="h-5 w-5 text-amber-400" />
-            <span>Продажи по SKU (общие)</span>
+            <span>{t('analytics.skuSalesAll')}</span>
           </h2>
           <MonthDetailTable products={products} />
         </div>
@@ -593,7 +614,7 @@ export default function AnalyticsPage() {
         <div className="glass-panel rounded-3xl p-5 sm:p-6 border border-white/5 space-y-4">
           <h2 className="text-base font-bold text-slate-200 flex items-center gap-2">
             <Users className="h-5 w-5 text-violet-400" />
-            <span>Рейтинг дилеров</span>
+            <span>{t('analytics.dealerRankings')}</span>
           </h2>
           <div className="glass-panel rounded-2xl overflow-hidden border border-white/5">
             <div className="overflow-x-auto">
@@ -601,11 +622,11 @@ export default function AnalyticsPage() {
                 <thead>
                   <tr className="border-b border-white/5 bg-slate-950/40 text-[10px] text-slate-400 uppercase tracking-wider font-extrabold">
                     <th className="py-3 px-5">#</th>
-                    <th className="py-3 px-5">Дилер</th>
-                    <th className="py-3 px-5 text-right">Заказы</th>
-                    <th className="py-3 px-5 text-right">Выручка</th>
+                    <th className="py-3 px-5">{t('analytics.dealer')}</th>
+                    <th className="py-3 px-5 text-right">{t('analytics.orders')}</th>
+                    <th className="py-3 px-5 text-right">{t('analytics.revenue')}</th>
                     <th className="py-3 px-5 text-right">
-                      Средний чек
+                      {t('analytics.averageCheck')}
                     </th>
                   </tr>
                 </thead>
