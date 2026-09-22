@@ -81,7 +81,13 @@ export class OrdersService {
     const orderStatus = status === 'DRAFT' ? 'DRAFT' : 'NEW';
 
     const customerStart = performance.now();
-    const customer = await prisma.user.findUnique({ where: { id: session.userId } });
+    const customer = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        name: true
+      }
+    });
     const customerMs = Math.round(performance.now() - customerStart);
     if (!customer) throw new Error('Клиент не найден.');
 
