@@ -27,6 +27,8 @@ export interface CommonTranslations {
   error: string;
   success: string;
   notFound: string;
+  add: string;
+  unknown: string;
 }
 
 export interface AuthTranslations {
@@ -168,6 +170,7 @@ export interface UnitsTranslations {
   perBlock: string;
   perCase: string;
   pricePerUnit: string;
+  pieces: string;
 }
 
 export interface DashboardTranslations {
@@ -309,12 +312,86 @@ export interface ErrorsTranslations {
   invalidNumber: string;
 }
 
+export interface SellerTranslations {
+  incomingOrders: string;
+  skuMonitoring: string;
+  totalSalesVolume: string;
+  activeOrdersSum: string;
+  casesShipped: string;
+  casesConversionHint: string;
+  blocksShipped: string;
+  blocksConversionHint: string;
+  activeClients: string;
+  companiesCount: string;
+  madeAtLeastOneOrder: string;
+  searchOrdersPlaceholder: string;
+  period: string;
+  today: string;
+  week: string;
+  incomingOrdersJournal: string;
+  ordersNotFound: string;
+  ordersNotFoundDesc: string;
+  dealSum: string;
+  purchaseList: string;
+  noCommentsYet: string;
+  volume: string;
+  editOrder: string;
+  editOrderItemsTitle: string;
+  changeStatus: string;
+  noExcel: string;
+  downloadExcel: string;
+  catalogMonitoring: string;
+  catalogMonitoringDesc: string;
+  searchCatalogPlaceholder: string;
+  tableCover: string;
+  pricePerPack: string;
+  pricePerBlock: string;
+  stockBalance: string;
+  showcase: string;
+  actions: string;
+  statusActive: string;
+  statusHidden: string;
+  editStock: string;
+  editStockTitle: string;
+  editStockModalTitle: string;
+  product: string;
+  newStockPacksLabel: string;
+  inBlocks: string;
+  inCases: string;
+  saveStock: string;
+  editOrderModalTitle: string;
+  orderItemsHeader: string;
+  bonusFree: string;
+  removeItemTitle: string;
+  quantityBlocksLabel: string;
+  pricePerPackLabel: string;
+  makePaid: string;
+  makeBonus: string;
+  itemTotalLabel: string;
+  giftZeroSum: string;
+  selectProductToAdd: string;
+  totalBlocksSummary: string;
+  totalPacksSummary: string;
+  recalculatedOrderTotal: string;
+  saveChanges: string;
+  statusUpdated: string;
+  statusUpdateError: string;
+  stockUpdated: string;
+  stockUpdateError: string;
+  atLeastOneItemRequired: string;
+  specifyQuantityError: string;
+  orderUpdatedSuccess: string;
+  orderUpdateError: string;
+  networkError: string;
+}
+
 export interface Dictionary {
   common: CommonTranslations;
   auth: AuthTranslations;
   navigation: NavigationTranslations;
   products: ProductsTranslations;
   orders: OrdersTranslations;
+  seller: SellerTranslations;
   units: UnitsTranslations;
   dashboard: DashboardTranslations;
   catalog: CatalogTranslations;

@@ -99,7 +99,7 @@ export default function SellerLayout({ children }: { children: React.ReactNode }
               </div>
               <div>
                 <span className="font-bold tracking-tight text-base flex items-center gap-1.5">
-                  SELLER CONSOLE <Leaf className="h-3 w-3 text-cyan-400 animate-pulse-slow" />
+                  {t('navigation.sellerConsole')} <Leaf className="h-3 w-3 text-cyan-400 animate-pulse-slow" />
                 </span>
                 <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">{t('navigation.orderManagement')}</span>
               </div>
@@ -123,7 +123,7 @@ export default function SellerLayout({ children }: { children: React.ReactNode }
               <div className="hidden md:flex flex-col text-right pl-2 border-l border-white/5">
                 <span className="text-xs font-bold text-slate-200">{user?.name}</span>
                 <span className="text-[10px] text-slate-400 font-semibold tracking-wider">
-                  {user?.roleName || 'Manager'}
+                  {user?.roleName || t('auth.sellerRole')}
                 </span>
               </div>
               <Link 

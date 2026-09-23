@@ -76,7 +76,21 @@ interface EditOrderItemState {
 }
 
 export default function SellerDashboard() {
-  const { t } = useTranslation();
+  const { t, language, localizeError } = useTranslation();
+  const locale = language === 'uz' ? 'uz-UZ' : language === 'en' ? 'en-US' : 'ru-RU';
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'DRAFT': return t('orders.statusDraft');
+      case 'NEW': return t('orders.statusNew');
+      case 'ASSEMBLY': return t('orders.statusAssembly');
+      case 'SHIPPED': return t('orders.statusShipped');
+      case 'COMPLETED': return t('orders.statusCompleted');
+      case 'CANCELLED': return t('orders.statusCancelled');
+      default: return status;
+    }
+  };
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -184,14 +198,14 @@ export default function SellerDashboard() {
         body: JSON.stringify({ orderId, status: newStatus })
       });
       if (res.ok) {
-        showToast(`Статус заказа изменен на "${newStatus}"`);
+        showToast(t('seller.statusUpdated', { status: getStatusLabel(newStatus) }));
         loadAllOrders();
       } else {
         const data = await res.json();
-        showToast(data.error || 'Не удалось изменить статус заказа.', 'error');
+        showToast(localizeError(data.error) || t('seller.statusUpdateError'), 'error');
       }
     } catch {
-      showToast('Ошибка соединения с сервером.', 'error');
+      showToast(t('seller.networkError'), 'error');
     }
   };
 
@@ -218,14 +232,14 @@ export default function SellerDashboard() {
 
       const data = await res.json();
       if (res.ok) {
-        showToast(`Остаток для "${editingStockProduct.name}" успешно обновлен!`);
+        showToast(t('seller.stockUpdated', { product: editingStockProduct.name }));
         setEditingStockProduct(null);
         loadProducts();
       } else {
-        showToast(data.error || 'Ошибка при обновлении остатка.', 'error');
+        showToast(localizeError(data.error) || t('seller.stockUpdateError'), 'error');
       }
     } catch {
-      showToast('Ошибка связи с сервером.', 'error');
+      showToast(t('seller.networkError'), 'error');
     } finally {
       setSavingStock(false);
     }
@@ -241,7 +255,7 @@ export default function SellerDashboard() {
     const mappedItems: EditOrderItemState[] = order.items.map(i => ({
       productId: i.productId,
       sku: i.skuSnapshot || i.product?.sku || '',
-      name: i.productNameSnapshot || i.product?.name || 'Товар',
+      name: i.productNameSnapshot || i.product?.name || t('seller.product'),
       price: i.effectivePrice !== undefined ? i.effectivePrice : i.price,
       quantityPacks: i.quantityPacks
     }));
@@ -284,7 +298,7 @@ export default function SellerDashboard() {
 
   const handleRemoveOrderItem = (index: number) => {
     if (orderEditItems.length <= 1) {
-      setOrderEditError('В заказе должен оставаться хотя бы один товар.');
+      setOrderEditError(t('seller.atLeastOneItemRequired'));
       return;
     }
     setOrderEditItems(prev => prev.filter((_, i) => i !== index));
@@ -322,7 +336,7 @@ export default function SellerDashboard() {
 
     const activeItems = orderEditItems.filter(i => i.quantityPacks > 0);
     if (activeItems.length === 0) {
-      setOrderEditError('Укажите количество хотя бы для одного товара.');
+      setOrderEditError(t('seller.specifyQuantityError'));
       setSavingOrder(false);
       return;
     }
@@ -344,14 +358,14 @@ export default function SellerDashboard() {
 
       const data = await res.json();
       if (res.ok) {
-        showToast(`Заказ ${editingOrder.orderNumber} успешно обновлен!`);
+        showToast(t('seller.orderUpdatedSuccess', { orderNumber: editingOrder.orderNumber }));
         setEditingOrder(null);
         loadAllOrders();
       } else {
-        setOrderEditError(data.error || 'Не удалось обновить заказ.');
+        setOrderEditError(localizeError(data.error) || t('seller.orderUpdateError'));
       }
     } catch {
-      setOrderEditError('Ошибка связи с сервером.');
+      setOrderEditError(t('seller.networkError'));
     } finally {
       setSavingOrder(false);
     }
@@ -421,17 +435,17 @@ export default function SellerDashboard() {
   const renderStatusBadge = (status: Order['status']) => {
     switch (status) {
       case 'DRAFT':
-        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">Черновик</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">{t('orders.statusDraft')}</span>;
       case 'NEW':
-        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">Новый заказ</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">{t('orders.statusNew')}</span>;
       case 'ASSEMBLY':
-        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-500/10 border border-amber-500/20 text-amber-400">Сборка</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-500/10 border border-amber-500/20 text-amber-400">{t('orders.statusAssembly')}</span>;
       case 'SHIPPED':
-        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">Отгрузка</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">{t('orders.statusShipped')}</span>;
       case 'COMPLETED':
-        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">Завершен</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">{t('orders.statusCompleted')}</span>;
       case 'CANCELLED':
-        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-red-500/10 border border-red-500/20 text-red-400">Отменен</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-red-500/10 border border-red-500/20 text-red-400">{t('orders.statusCancelled')}</span>;
     }
   };
 
@@ -469,7 +483,7 @@ export default function SellerDashboard() {
           }`}
         >
           <Briefcase className="w-4 h-4" />
-          <span>Входящие заказы</span>
+          <span>{t('seller.incomingOrders')}</span>
         </button>
         <button
           onClick={() => setActiveTab('products')}
@@ -480,14 +494,14 @@ export default function SellerDashboard() {
           }`}
         >
           <ShoppingBag className="w-4 h-4" />
-          <span>Мониторинг SKU (Цены и остатки)</span>
+          <span>{t('seller.skuMonitoring')}</span>
         </button>
         <a
           href="/analytics"
           className="px-5 py-3 text-xs font-extrabold uppercase tracking-wider transition-all border-b-2 border-transparent text-slate-400 hover:text-white hover:bg-white/5 flex items-center gap-2"
         >
           <BarChart3 className="w-4 h-4 text-cyan-400" />
-          <span>Аналитика</span>
+          <span>{t('navigation.analytics')}</span>
         </a>
       </div>
 
@@ -497,38 +511,38 @@ export default function SellerDashboard() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-indigo-500">
               <div className="flex justify-between items-center text-slate-400">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Общий объем продаж</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{t('seller.totalSalesVolume')}</span>
                 <DollarSign className="h-4.5 w-4.5 text-indigo-400" />
               </div>
-              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.revenue.toLocaleString()} so'm</span>
-              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">Сумма активных заказов</span>
+              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.revenue.toLocaleString(locale)} so'm</span>
+              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{t('seller.activeOrdersSum')}</span>
             </div>
 
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-cyan-500">
               <div className="flex justify-between items-center text-slate-400">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Отгружено коробок</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{t('seller.casesShipped')}</span>
                 <Package className="h-4.5 w-4.5 text-cyan-400" />
               </div>
-              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.cases} кор.</span>
-              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">1 коробка = 50 блоков (500 пачек)</span>
+              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.cases} {t('units.casesShort')}</span>
+              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{t('seller.casesConversionHint')}</span>
             </div>
 
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-emerald-500">
               <div className="flex justify-between items-center text-slate-400">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Отгружено блоков</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{t('seller.blocksShipped')}</span>
                 <Layers className="h-4.5 w-4.5 text-emerald-400" />
               </div>
-              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.blocks} бл.</span>
-              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">1 блок = 10 пачек</span>
+              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.blocks} {t('units.blocksShort')}</span>
+              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{t('seller.blocksConversionHint')}</span>
             </div>
 
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-amber-500">
               <div className="flex justify-between items-center text-slate-400">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Активные клиенты</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{t('seller.activeClients')}</span>
                 <UserCheck className="h-4.5 w-4.5 text-amber-400" />
               </div>
-              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.uniqueClients} компаний</span>
-              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">Сделали хотя бы 1 заказ</span>
+              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.uniqueClients} {t('seller.companiesCount')}</span>
+              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{t('seller.madeAtLeastOneOrder')}</span>
             </div>
           </div>
 
@@ -539,7 +553,7 @@ export default function SellerDashboard() {
               <input
                 type="text"
                 className="w-full rounded-xl pl-9 pr-4 py-2.5 text-xs glass-input"
-                placeholder="Поиск по клиенту или № заказа..."
+                placeholder={t('seller.searchOrdersPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -547,7 +561,7 @@ export default function SellerDashboard() {
 
             <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto xl:justify-end">
               <div className="flex items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 overflow-x-auto max-w-full">
-                <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5 whitespace-nowrap">Статус:</span>
+                <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5 whitespace-nowrap">{t('orders.status')}:</span>
                 {['ALL', 'NEW', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'].map(status => (
                   <button
                     key={status}
@@ -558,13 +572,13 @@ export default function SellerDashboard() {
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    {status === 'ALL' ? 'Все' : status === 'NEW' ? 'Новые' : status === 'ASSEMBLY' ? 'Сборка' : status === 'SHIPPED' ? 'Отгрузка' : status === 'COMPLETED' ? 'Вып.' : 'Отм.'}
+                    {status === 'ALL' ? t('common.all') : getStatusLabel(status)}
                   </button>
                 ))}
               </div>
 
               <div className="flex items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0">
-                <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5">Период:</span>
+                <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5">{t('seller.period')}:</span>
                 {['ALL', 'TODAY', 'WEEK'].map(time => (
                   <button
                     key={time}
@@ -575,7 +589,7 @@ export default function SellerDashboard() {
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    {time === 'ALL' ? 'Все' : time === 'TODAY' ? 'Сегодня' : 'Неделя'}
+                    {time === 'ALL' ? t('common.all') : time === 'TODAY' ? t('seller.today') : t('seller.week')}
                   </button>
                 ))}
               </div>
@@ -587,20 +601,20 @@ export default function SellerDashboard() {
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-200 text-base flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-cyan-400" />
-                <span>Журнал входящих B2B заказов ({filteredOrders.length})</span>
+                <span>{t('seller.incomingOrdersJournal', { count: filteredOrders.length })}</span>
               </h3>
             </div>
 
             {filteredOrders.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center glass-panel rounded-2xl animate-fade-in">
                 <AlertCircle className="h-10 w-10 text-slate-500 mb-4" />
-                <h3 className="text-lg font-bold text-slate-300">Заказы не найдены</h3>
-                <p className="text-xs text-slate-400 mt-2">По заданным фильтрам и поисковым критериям записей в журнале нет.</p>
+                <h3 className="text-lg font-bold text-slate-300">{t('seller.ordersNotFound')}</h3>
+                <p className="text-xs text-slate-400 mt-2">{t('seller.ordersNotFoundDesc')}</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {filteredOrders.map((order) => {
-                  const date = new Date(order.createdAt).toLocaleString('ru-RU', {
+                  const date = new Date(order.createdAt).toLocaleString(locale, {
                     day: '2-digit',
                     month: '2-digit',
                     year: 'numeric',
@@ -620,19 +634,19 @@ export default function SellerDashboard() {
                             {renderStatusBadge(order.status)}
                           </div>
                           <span className="block text-[10px] text-slate-400 mt-1 font-semibold">
-                            Клиент: <span className="text-slate-200 font-bold">{order.customer.name}</span> ({order.customer.email})
+                            {t('orders.customer')}: <span className="text-slate-200 font-bold">{order.customer.name}</span> ({order.customer.email})
                           </span>
                         </div>
 
                         <div className="text-left sm:text-right">
-                          <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider">Сумма сделки:</span>
-                          <span className="block font-extrabold text-base text-emerald-400 mt-0.5 leading-none">{order.totalPrice.toLocaleString()} so'm</span>
+                          <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider">{t('seller.dealSum')}</span>
+                          <span className="block font-extrabold text-base text-emerald-400 mt-0.5 leading-none">{order.totalPrice.toLocaleString(locale)} so'm</span>
                         </div>
                       </div>
 
                       {/* SKU breakdown details grid */}
                       <div className="py-1">
-                        <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-2">Перечень закупки:</span>
+                        <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-2">{t('seller.purchaseList')}</span>
                         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
                           {order.items.map((item) => {
                             const breakdown = breakdownPacks(item.quantityPacks, {
@@ -642,8 +656,8 @@ export default function SellerDashboard() {
                             return (
                               <div key={item.id} className="bg-slate-950/20 border border-white/5 rounded-xl p-2.5 flex justify-between items-center text-xs">
                                 <div>
-                                  <span className="block font-bold text-slate-300 line-clamp-1">{item.productNameSnapshot || item.product?.name || 'Неизвестно'}</span>
-                                  <span className="block text-[9px] text-slate-500 font-semibold mt-0.5">{item.skuSnapshot || item.product?.sku || 'Неизвестно'}</span>
+                                  <span className="block font-bold text-slate-300 line-clamp-1">{item.productNameSnapshot || item.product?.name || t('common.unknown')}</span>
+                                  <span className="block text-[9px] text-slate-500 font-semibold mt-0.5">{item.skuSnapshot || item.product?.sku || t('common.unknown')}</span>
                                 </div>
                                 <span className="font-extrabold text-cyan-400 flex-shrink-0">{breakdown.label}</span>
                               </div>
@@ -657,13 +671,13 @@ export default function SellerDashboard() {
                         <div className="mt-2 pt-3 border-t border-white/5 space-y-2.5">
                           <h4 className="text-[9px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                             <MessageSquare className="h-3.5 w-3.5 text-cyan-400" />
-                            <span>Комментарии</span>
+                            <span>{t('orders.comment')}</span>
                           </h4>
                           
                           {order.comments && order.comments.length > 0 ? (
                             <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                               {order.comments.map((comment) => {
-                                const commentDate = new Date(comment.createdAt).toLocaleString('ru-RU', {
+                                const commentDate = new Date(comment.createdAt).toLocaleString(locale, {
                                   day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
                                 });
                                 return (
@@ -678,13 +692,13 @@ export default function SellerDashboard() {
                               })}
                             </div>
                           ) : (
-                            <p className="text-[10px] text-slate-500 italic px-1">Комментариев к заказу пока нет.</p>
+                            <p className="text-[10px] text-slate-500 italic px-1">{t('seller.noCommentsYet')}</p>
                           )}
 
                           <div className="flex gap-2">
                             <input 
                               type="text"
-                              placeholder="Напишите комментарий..."
+                              placeholder={t('orders.commentPlaceholder')}
                               id={`comment-input-${order.id}`}
                               className="flex-1 rounded-xl px-3 py-2 text-xs glass-input"
                               onKeyDown={async (e) => {
@@ -729,7 +743,7 @@ export default function SellerDashboard() {
                               }}
                               className="btn-primary px-3 py-1.5 text-xs flex items-center justify-center"
                             >
-                              Отправить
+                              {t('orders.sendComment')}
                             </button>
                           </div>
                         </div>
@@ -738,7 +752,7 @@ export default function SellerDashboard() {
                       {/* Actions & Summary breakdown footer */}
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-3 border-t border-white/5 w-full">
                         <div className="text-[10px] text-slate-400 font-semibold">
-                          Объем: <span className="text-slate-200 font-bold">{order.totalBlocks} блоков</span> / <span className="text-slate-200 font-bold">{order.totalCases} коробок</span>
+                          {t('seller.volume')}: <span className="text-slate-200 font-bold">{order.totalBlocks} {t('units.blocks')}</span> / <span className="text-slate-200 font-bold">{order.totalCases} {t('units.cases')}</span>
                           <span className="ml-3 text-slate-500">({date})</span>
                         </div>
 
@@ -748,10 +762,10 @@ export default function SellerDashboard() {
                             <button
                               onClick={() => openEditOrderModal(order)}
                               className="px-3 py-1.5 rounded-xl border border-indigo-500/25 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 text-xs font-bold flex items-center gap-1.5 transition-all"
-                              title="Редактировать позиции заказа"
+                              title={t('seller.editOrder')}
                             >
                               <Edit className="h-3.5 w-3.5" />
-                              <span>Редактировать заказ</span>
+                              <span>{t('seller.editOrder')}</span>
                             </button>
                           )}
 
@@ -759,17 +773,17 @@ export default function SellerDashboard() {
                           {order.status !== 'DRAFT' && (
                             canChangeStatus ? (
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">Статус:</span>
+                                <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">{t('orders.status')}:</span>
                                 <select
                                   value={order.status}
                                   onChange={(e) => handleStatusChange(order.id, e.target.value)}
                                   className="bg-slate-900 border border-white/10 rounded-lg py-1 px-2.5 text-[10px] font-bold text-slate-300 focus:outline-none focus:border-cyan-500/50 transition-all cursor-pointer"
                                 >
-                                  <option value="NEW">Новый</option>
-                                  <option value="ASSEMBLY">Сборка</option>
-                                  <option value="SHIPPED">Отгрузка</option>
-                                  <option value="COMPLETED">Завершен</option>
-                                  <option value="CANCELLED">Отменен</option>
+                                  <option value="NEW">{t('orders.statusNew')}</option>
+                                  <option value="ASSEMBLY">{t('orders.statusAssembly')}</option>
+                                  <option value="SHIPPED">{t('orders.statusShipped')}</option>
+                                  <option value="COMPLETED">{t('orders.statusCompleted')}</option>
+                                  <option value="CANCELLED">{t('orders.statusCancelled')}</option>
                                 </select>
                               </div>
                             ) : (
@@ -784,18 +798,18 @@ export default function SellerDashboard() {
                                 href={`/api/orders/download?id=${order.id}`}
                                 download
                                 className="btn-primary flex items-center justify-center gap-2 px-3.5 py-1.5 text-xs"
-                                title="Скачать накладную Excel"
+                                title={t('seller.downloadExcel')}
                               >
                                 <Download className="h-3.5 w-3.5" />
                                 <span>Excel</span>
                               </a>
                             ) : order.status === 'DRAFT' ? (
                               <span className="text-slate-500 text-[10px] py-1 px-2.5 border border-dashed border-white/5 rounded-lg whitespace-nowrap">
-                                Черновик
+                                {t('orders.statusDraft')}
                               </span>
                             ) : (
                               <span className="text-red-400 bg-red-500/10 border border-red-500/20 text-[10px] font-bold py-1 px-2.5 rounded-lg whitespace-nowrap">
-                                Нет Excel
+                                {t('seller.noExcel')}
                               </span>
                             )
                           )}
@@ -815,10 +829,10 @@ export default function SellerDashboard() {
             <div>
               <h3 className="font-bold text-slate-200 text-base flex items-center gap-2">
                 <Eye className="h-5 w-5 text-cyan-400" />
-                <span>Мониторинг каталога (Цены и остатки на складе)</span>
+                <span>{t('seller.catalogMonitoring')}</span>
               </h3>
               <span className="text-[10px] text-slate-500 font-semibold block mt-0.5">
-                Просмотр номенклатуры сигарет, цен и физических остатков в реальном времени.
+                {t('seller.catalogMonitoringDesc')}
               </span>
             </div>
 
@@ -827,7 +841,7 @@ export default function SellerDashboard() {
               <input
                 type="text"
                 className="w-full rounded-xl pl-9 pr-4 py-2 text-xs glass-input"
-                placeholder="Поиск по марке или артикулу..."
+                placeholder={t('seller.searchCatalogPlaceholder')}
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
               />
@@ -841,7 +855,7 @@ export default function SellerDashboard() {
           ) : filteredProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center glass-panel rounded-2xl">
               <ShoppingBag className="h-10 w-10 text-slate-600 mb-2" />
-              <p className="text-xs text-slate-400">Товары не найдены.</p>
+              <p className="text-xs text-slate-400">{t('products.noProductsFound')}</p>
             </div>
           ) : (
             <div className="glass-panel rounded-3xl overflow-hidden border border-white/5 animate-fade-in shadow-glass-sm">
@@ -849,14 +863,14 @@ export default function SellerDashboard() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-white/5 bg-slate-950/40 text-[10px] text-slate-400 uppercase tracking-wider font-extrabold">
-                      <th className="py-4 px-6">Обложка</th>
-                      <th className="py-4 px-6">Артикул / SKU</th>
-                      <th className="py-4 px-6">Наименование</th>
-                      <th className="py-4 px-6">Цена за пачку</th>
-                      <th className="py-4 px-6">Цена за блок</th>
-                      <th className="py-4 px-6">Остаток на складе</th>
-                      <th className="py-4 px-6">Витрина</th>
-                      {canUpdateStock && <th className="py-4 px-6 text-right">Действия</th>}
+                      <th className="py-4 px-6">{t('seller.tableCover')}</th>
+                      <th className="py-4 px-6">{t('products.sku')}</th>
+                      <th className="py-4 px-6">{t('products.name')}</th>
+                      <th className="py-4 px-6">{t('seller.pricePerPack')}</th>
+                      <th className="py-4 px-6">{t('seller.pricePerBlock')}</th>
+                      <th className="py-4 px-6">{t('seller.stockBalance')}</th>
+                      <th className="py-4 px-6">{t('seller.showcase')}</th>
+                      {canUpdateStock && <th className="py-4 px-6 text-right">{t('seller.actions')}</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 text-xs">
@@ -864,7 +878,7 @@ export default function SellerDashboard() {
                       const caseQty = Math.floor(p.stockPacks / 500);
                       const blockQty = Math.floor((p.stockPacks % 500) / 10);
                       const packQty = p.stockPacks % 10;
-                      const detailStock = `${caseQty} кор.  ${blockQty} бл.` + (packQty > 0 ? `  ${packQty} пач.` : '');
+                      const detailStock = `${caseQty} ${t('units.casesShort')}  ${blockQty} ${t('units.blocksShort')}` + (packQty > 0 ? `  ${packQty} ${t('units.pieces')}` : '');
 
                       return (
                         <tr key={p.id} className="hover:bg-white/5 transition-all text-slate-300">
@@ -898,10 +912,10 @@ export default function SellerDashboard() {
                               </div>
                             )}
                           </td>
-                          <td className="py-4 px-6 font-bold text-slate-300">{p.basePrice.toLocaleString()} so'm</td>
-                          <td className="py-4 px-6 font-bold text-primary-focus">{(p.basePrice * 10).toLocaleString()} so'm</td>
+                          <td className="py-4 px-6 font-bold text-slate-300">{p.basePrice.toLocaleString(locale)} so'm</td>
+                          <td className="py-4 px-6 font-bold text-primary-focus">{(p.basePrice * 10).toLocaleString(locale)} so'm</td>
                           <td className="py-4 px-6">
-                            <div className="font-bold text-slate-100">{p.stockPacks.toLocaleString()} шт.</div>
+                            <div className="font-bold text-slate-100">{p.stockPacks.toLocaleString(locale)} {t('units.pieces')}</div>
                             <div className="text-[10px] text-slate-500 font-semibold mt-0.5">({detailStock})</div>
                           </td>
                           <td className="py-4 px-6">
@@ -910,7 +924,7 @@ export default function SellerDashboard() {
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
                                 : 'bg-red-500/10 border-red-500/20 text-red-400'
                             }`}>
-                              {p.isActive ? 'АКТИВЕН' : 'СКРЫТ'}
+                              {p.isActive ? t('seller.statusActive') : t('seller.statusHidden')}
                             </span>
                           </td>
                           {canUpdateStock && (
@@ -918,10 +932,10 @@ export default function SellerDashboard() {
                               <button
                                 onClick={() => openStockModal(p)}
                                 className="px-3 py-1.5 rounded-lg border border-cyan-500/25 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 text-xs font-bold inline-flex items-center gap-1.5 transition-all"
-                                title="Изменить количество товара на складе"
+                                title={t('seller.editStock')}
                               >
                                 <Edit className="h-3.5 w-3.5" />
-                                <span>Изменить остаток</span>
+                                <span>{t('seller.editStock')}</span>
                               </button>
                             </td>
                           )}
@@ -949,19 +963,19 @@ export default function SellerDashboard() {
 
             <h3 className="text-base font-bold text-slate-200 mb-4 flex items-center gap-2">
               <Package className="h-5 w-5 text-cyan-400" />
-              <span>Редактирование складского остатка</span>
+              <span>{t('seller.editStockModalTitle')}</span>
             </h3>
 
             <div className="bg-slate-900/60 p-3.5 rounded-xl border border-white/5 space-y-1 mb-4">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Товар</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{t('seller.product')}</span>
               <p className="text-sm font-extrabold text-slate-100">{editingStockProduct.name}</p>
-              <p className="text-xs text-slate-400 font-mono">Артикул / SKU: {editingStockProduct.sku}</p>
+              <p className="text-xs text-slate-400 font-mono">{t('products.sku')}: {editingStockProduct.sku}</p>
             </div>
 
             <form onSubmit={handleSaveStock} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Новый остаток на складе (в штуках/пачках)
+                  {t('seller.newStockPacksLabel')}
                 </label>
                 <input
                   type="number"
@@ -975,12 +989,12 @@ export default function SellerDashboard() {
                 {/* Real-time breakdown helper */}
                 <div className="p-3 rounded-xl bg-slate-950/40 border border-white/5 text-xs text-slate-300 font-semibold space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">В блоках (по 10 шт):</span>
-                    <strong className="text-cyan-400">{Math.floor((Number(stockPacksValue) || 0) / 10)} блоков</strong>
+                    <span className="text-slate-400">{t('seller.inBlocks')}</span>
+                    <strong className="text-cyan-400">{Math.floor((Number(stockPacksValue) || 0) / 10)} {t('units.blocks')}</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">В коробках (по 500 шт):</span>
-                    <strong className="text-indigo-400">{Math.round(((Number(stockPacksValue) || 0) / 500) * 100) / 100} коробок</strong>
+                    <span className="text-slate-400">{t('seller.inCases')}</span>
+                    <strong className="text-indigo-400">{Math.round(((Number(stockPacksValue) || 0) / 500) * 100) / 100} {t('units.cases')}</strong>
                   </div>
                 </div>
 
@@ -991,21 +1005,21 @@ export default function SellerDashboard() {
                     onClick={() => setStockPacksValue(prev => (Number(prev) || 0) + 100)}
                     className="px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] font-bold text-slate-300"
                   >
-                    +10 блоков
+                    +10 {t('units.blocks')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setStockPacksValue(prev => (Number(prev) || 0) + 500)}
                     className="px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] font-bold text-slate-300"
                   >
-                    +1 коробка (500)
+                    +1 {t('units.perCase')} (500)
                   </button>
                   <button
                     type="button"
                     onClick={() => setStockPacksValue(prev => (Number(prev) || 0) + 2500)}
                     className="px-2.5 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] font-bold text-slate-300"
                   >
-                    +5 коробок
+                    +5 {t('units.cases')}
                   </button>
                 </div>
               </div>
@@ -1016,7 +1030,7 @@ export default function SellerDashboard() {
                   onClick={() => setEditingStockProduct(null)}
                   className="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-slate-300 hover:bg-white/10"
                 >
-                  Отмена
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -1024,7 +1038,7 @@ export default function SellerDashboard() {
                   className="btn-primary flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-2"
                 >
                   {savingStock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  <span>Сохранить остаток</span>
+                  <span>{t('seller.saveStock')}</span>
                 </button>
               </div>
             </form>
@@ -1044,10 +1058,10 @@ export default function SellerDashboard() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-200">
-                    Редактирование заказа {editingOrder.orderNumber}
+                    {t('seller.editOrderModalTitle', { orderNumber: editingOrder.orderNumber })}
                   </h3>
                   <span className="block text-xs text-slate-400">
-                    Клиент: <strong className="text-slate-200">{editingOrder.customer.name}</strong> • Статус: {editingOrder.status}
+                    {t('orders.customer')}: <strong className="text-slate-200">{editingOrder.customer.name}</strong> • {t('orders.status')}: {getStatusLabel(editingOrder.status)}
                   </span>
                 </div>
               </div>
@@ -1071,7 +1085,7 @@ export default function SellerDashboard() {
             {/* Body */}
             <form onSubmit={handleSaveOrderEdit} className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
               <div className="space-y-3">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Позиции в заказе:</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{t('seller.orderItemsHeader')}</span>
                 
                 {orderEditItems.map((item, index) => {
                   const blocks = Math.floor(item.quantityPacks / 10);
@@ -1091,7 +1105,7 @@ export default function SellerDashboard() {
                             <h4 className="text-xs font-bold text-slate-200 truncate">{item.name}</h4>
                             {isBonus && (
                               <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                                БОНУС / 0 СУМ
+                                {t('seller.bonusFree')}
                               </span>
                             )}
                           </div>
@@ -1103,7 +1117,7 @@ export default function SellerDashboard() {
                           type="button"
                           onClick={() => handleRemoveOrderItem(index)}
                           className="h-7 w-7 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all flex-shrink-0"
-                          title="Удалить позицию из заказа"
+                          title={t('seller.removeItemTitle')}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -1113,7 +1127,7 @@ export default function SellerDashboard() {
                       <div className="mt-3 pt-3 border-t border-white/5 grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
                         {/* 1. Quantity in blocks / packs */}
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Количество (блоки)</label>
+                          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{t('seller.quantityBlocksLabel')}</label>
                           <div className="flex items-center gap-1.5 bg-slate-900 border border-white/10 rounded-xl p-1">
                             <button
                               type="button"
@@ -1136,14 +1150,14 @@ export default function SellerDashboard() {
                             >
                               +
                             </button>
-                            <span className="text-[10px] text-slate-500 font-bold pr-1">бл. ({item.quantityPacks} шт.)</span>
+                            <span className="text-[10px] text-slate-500 font-bold pr-1">{t('units.blocksShort')} ({item.quantityPacks} {t('units.pieces')})</span>
                           </div>
                         </div>
 
                         {/* 2. Price per pack & bonus toggle */}
                         <div className="space-y-1">
                           <div className="flex justify-between items-center">
-                            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Цена/пачка (сум)</label>
+                            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{t('seller.pricePerPackLabel')}</label>
                             <button
                               type="button"
                               onClick={() => handleToggleBonus(index)}
@@ -1153,7 +1167,7 @@ export default function SellerDashboard() {
                                   : 'bg-white/5 text-slate-400 hover:text-white'
                               }`}
                             >
-                              {isBonus ? 'Сделать платным' : 'Сделать бонусом (0)'}
+                              {isBonus ? t('seller.makePaid') : t('seller.makeBonus')}
                             </button>
                           </div>
                           <input
@@ -1169,9 +1183,9 @@ export default function SellerDashboard() {
 
                         {/* 3. Item total sum */}
                         <div className="space-y-1 text-left sm:text-right">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Сумма позиции:</span>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{t('seller.itemTotalLabel')}</span>
                           <span className="text-sm font-extrabold text-emerald-400 block">
-                            {isBonus ? '0 so\'m (Подарок)' : `${itemTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} so'm`}
+                            {isBonus ? t('seller.giftZeroSum') : `${itemTotal.toLocaleString(locale, { maximumFractionDigits: 2 })} so'm`}
                           </span>
                         </div>
                       </div>
@@ -1188,10 +1202,10 @@ export default function SellerDashboard() {
                     value={selectedAddProductId}
                     onChange={(e) => setSelectedAddProductId(e.target.value)}
                   >
-                    <option value="">-- Добавить марку в заказ --</option>
+                    <option value="">{t('seller.selectProductToAdd')}</option>
                     {products.filter(p => p.isActive).map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.sku}) — {p.basePrice.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} so'm
+                        {p.name} ({p.sku}) — {p.basePrice.toLocaleString(locale, { maximumFractionDigits: 2 })} so'm
                       </option>
                     ))}
                   </select>
@@ -1202,7 +1216,7 @@ export default function SellerDashboard() {
                     className="px-4 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 hover:bg-cyan-500/20 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 transition-all"
                   >
                     <Plus className="h-4 w-4" />
-                    <span>Добавить</span>
+                    <span>{t('common.add')}</span>
                   </button>
                 </div>
               </div>
@@ -1210,16 +1224,16 @@ export default function SellerDashboard() {
               {/* Totals Summary */}
               <div className="rounded-2xl border border-white/5 bg-slate-950/60 p-4 space-y-2">
                 <div className="flex justify-between text-xs text-slate-400">
-                  <span>Итого блоков:</span>
-                  <strong className="text-slate-200">{editOrderTotals.totalBlocks} блоков ({editOrderTotals.totalCases} коробок)</strong>
+                  <span>{t('seller.totalBlocksSummary')}:</span>
+                  <strong className="text-slate-200">{editOrderTotals.totalBlocks} {t('units.blocks')} ({editOrderTotals.totalCases} {t('units.cases')})</strong>
                 </div>
                 <div className="flex justify-between text-xs text-slate-400">
-                  <span>Итого пачек:</span>
-                  <strong className="text-slate-200">{editOrderTotals.totalPacks} шт.</strong>
+                  <span>{t('seller.totalPacksSummary')}:</span>
+                  <strong className="text-slate-200">{editOrderTotals.totalPacks} {t('units.pieces')}</strong>
                 </div>
                 <div className="flex justify-between text-sm font-bold pt-2 border-t border-white/5">
-                  <span className="text-slate-300">Пересчитанная сумма заказа:</span>
-                  <span className="text-emerald-400 font-extrabold">{editOrderTotals.totalPrice.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} so'm</span>
+                  <span className="text-slate-300">{t('seller.recalculatedOrderTotal')}:</span>
+                  <span className="text-emerald-400 font-extrabold">{editOrderTotals.totalPrice.toLocaleString(locale, { maximumFractionDigits: 2 })} so'm</span>
                 </div>
               </div>
 
@@ -1230,7 +1244,7 @@ export default function SellerDashboard() {
                   onClick={() => setEditingOrder(null)}
                   className="px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all"
                 >
-                  Отмена
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -1238,7 +1252,7 @@ export default function SellerDashboard() {
                   className="btn-primary px-6 py-2.5 text-xs font-bold flex items-center gap-2"
                 >
                   {savingOrder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  <span>Сохранить изменения</span>
+                  <span>{t('seller.saveChanges')}</span>
                 </button>
               </div>
             </form>
