@@ -225,7 +225,13 @@ export const ru: Dictionary = {
     specifyQuantityError: 'Укажите количество хотя бы для одного товара.',
     orderUpdatedSuccess: 'Заказ {orderNumber} успешно обновлен!',
     orderUpdateError: 'Не удалось обновить заказ.',
-    networkError: 'Ошибка связи с сервером.'
+    networkError: 'Ошибка связи с сервером.',
+    orderDocuments: 'Документы заказа',
+    generateWarehouseRequest: 'Сформировать запрос на сборку',
+    generatingWarehouseRequest: 'Формирование...',
+    warehouseRequestGenerated: 'Запрос на сборку сформирован',
+    downloadWarehouseRequest: 'Скачать запрос на сборку',
+    outboundNumber: 'Outbound №'
   },
   units: {
     packs: 'пачки',

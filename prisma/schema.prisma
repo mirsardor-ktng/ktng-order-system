@@ -22,6 +22,7 @@ model User {
   updatedAt      DateTime      @updatedAt
   orders         Order[]       @relation("CustomerOrders")
   ordersCreated  Order[]       @relation("OrderCreator")
+  orderDocumentsCreated OrderDocument[]
   comments       Comment[]
   auditLogs      AuditLog[]
 }
@@ -110,6 +111,7 @@ model Order {
   updatedAt       DateTime    @updatedAt
   items           OrderItem[]
   comments        Comment[]
+  documents       OrderDocument[]
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
@@ -193,6 +195,28 @@ model Template {
   isLocal    Boolean  @default(true)
   filePath   String?  // If stored locally on disk
   outputMode String   @default("COMMERCIAL") // "COMMERCIAL" | "INVENTORY"
+  type       String   @default("COMMERCIAL") // "COMMERCIAL" | "WAREHOUSE_ASSEMBLY_REQUEST"
+}
+
+model OrderDocument {
+  id              String            @id @default(cuid())
+  orderId         String
+  order           Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type            OrderDocumentType @default(WAREHOUSE_ASSEMBLY_REQUEST)
+  fileId          String?
+  fileName        String
+  fileUrl         String
+  createdByUserId String?
+  createdBy       User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime          @default(now())
+  metadata        Json?
+
+  @@index([orderId, type])
+  @@index([createdAt])
+}
+
+enum OrderDocumentType {
+  WAREHOUSE_ASSEMBLY_REQUEST
 }
 
 model PlaceholderMapping {

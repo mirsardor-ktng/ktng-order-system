@@ -383,6 +383,12 @@ export interface SellerTranslations {
   orderUpdatedSuccess: string;
   orderUpdateError: string;
   networkError: string;
+  orderDocuments: string;
+  generateWarehouseRequest: string;
+  generatingWarehouseRequest: string;
+  warehouseRequestGenerated: string;
+  downloadWarehouseRequest: string;
+  outboundNumber: string;
 }
 
 export interface Dictionary {

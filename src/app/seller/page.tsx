@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { 
   Briefcase, Download, Filter, Search, UserCheck, AlertCircle, 
   Loader2, DollarSign, Package, Layers, TrendingUp, ShoppingBag, Eye, MessageSquare, 
-  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw
+  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet
 } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
 import { useTranslation } from '@/i18n/context';
@@ -16,6 +16,18 @@ interface CommentItem {
   userName: string;
   text: string;
   createdAt: string;
+}
+
+export interface OrderDocumentItem {
+  id: string;
+  orderId: string;
+  type: string;
+  fileId: string | null;
+  fileName: string;
+  fileUrl: string;
+  createdByUserId?: string | null;
+  createdAt: string;
+  metadata?: any;
 }
 
 interface OrderItem {
@@ -53,6 +65,7 @@ interface Order {
   };
   items: OrderItem[];
   comments?: CommentItem[];
+  documents?: OrderDocumentItem[];
 }
 
 interface ProductItem {
@@ -123,16 +136,49 @@ export default function SellerDashboard() {
   const [savingOrder, setSavingOrder] = useState(false);
   const [orderEditError, setOrderEditError] = useState('');
   const [selectedAddProductId, setSelectedAddProductId] = useState('');
+  const [generatingRequestId, setGeneratingRequestId] = useState<string | null>(null);
 
   const canEditOrders = isSuperadmin || permissions.includes('orders:edit') || permissions.includes('orders:create');
   const canChangeStatus = isSuperadmin || permissions.includes('orders:status_change');
   const canUpdateStock = isSuperadmin || permissions.includes('products:stock_update') || permissions.includes('products:manage');
   const canExportExcel = isSuperadmin || permissions.includes('orders:export');
   const canAddComments = isSuperadmin || permissions.includes('orders:comments') || permissions.length === 0;
+  const canCreateWarehouseRequest = isSuperadmin || permissions.includes('orders:warehouse_request:create');
+  const canViewWarehouseRequest = isSuperadmin || permissions.includes('orders:warehouse_request:view');
+  const canDownloadWarehouseRequest = isSuperadmin || permissions.includes('orders:warehouse_request:download');
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  const handleGenerateWarehouseRequest = async (orderId: string) => {
+    try {
+      setGeneratingRequestId(orderId);
+      const res = await fetch(`/api/orders/${orderId}/warehouse-request`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to generate warehouse request');
+      }
+      showToast(t('seller.warehouseRequestGenerated'), 'success');
+      setOrders(prev => prev.map(o => {
+        if (o.id === orderId) {
+          const docs = o.documents ? [...o.documents.filter(d => d.type !== 'WAREHOUSE_ASSEMBLY_REQUEST')] : [];
+          return {
+            ...o,
+            documents: [data.document, ...docs]
+          };
+        }
+        return o;
+      }));
+    } catch (err: any) {
+      console.error('Error generating warehouse request:', err);
+      showToast(err.message || 'Error generating warehouse request', 'error');
+    } finally {
+      setGeneratingRequestId(null);
+    }
   };
 
   const loadAllOrders = async () => {
@@ -815,6 +861,70 @@ export default function SellerDashboard() {
                           )}
                         </div>
                       </div>
+
+                      {/* Order Documents Section */}
+                      {(canViewWarehouseRequest || canCreateWarehouseRequest || canDownloadWarehouseRequest) && (
+                        <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full bg-slate-950/20 px-3 py-2.5 rounded-xl border border-white/5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <FileSpreadsheet className="h-4 w-4 text-emerald-400 shrink-0" />
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              {t('seller.orderDocuments')}:
+                            </span>
+                            {(() => {
+                              const whDoc = order.documents?.find(d => d.type === 'WAREHOUSE_ASSEMBLY_REQUEST');
+                              if (whDoc) {
+                                const outboundNum = (whDoc.metadata as any)?.outboundNumber;
+                                return (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-bold">
+                                    {t('seller.outboundNumber')}: {outboundNum || whDoc.fileName}
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="text-slate-500 text-xs italic">
+                                  —
+                                </span>
+                              );
+                            })()}
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Generate button if authorized */}
+                            {canCreateWarehouseRequest && (
+                              <button
+                                onClick={() => handleGenerateWarehouseRequest(order.id)}
+                                disabled={generatingRequestId === order.id}
+                                className="px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                                title={t('seller.generateWarehouseRequest')}
+                              >
+                                {generatingRequestId === order.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                                )}
+                                <span>{generatingRequestId === order.id ? t('seller.generatingWarehouseRequest') : t('seller.generateWarehouseRequest')}</span>
+                              </button>
+                            )}
+
+                            {/* Download button if document exists and authorized */}
+                            {canDownloadWarehouseRequest && (() => {
+                              const whDoc = order.documents?.find(d => d.type === 'WAREHOUSE_ASSEMBLY_REQUEST');
+                              if (!whDoc) return null;
+                              return (
+                                <a
+                                  href={`/api/orders/documents/${whDoc.id}/download`}
+                                  download
+                                  className="btn-primary flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold"
+                                  title={t('seller.downloadWarehouseRequest')}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  <span>{t('seller.downloadWarehouseRequest')}</span>
+                                </a>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

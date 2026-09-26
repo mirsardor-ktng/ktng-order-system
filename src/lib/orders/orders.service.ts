@@ -66,6 +66,9 @@ export class OrdersService {
         },
         comments: {
           orderBy: { createdAt: 'asc' }
+        },
+        documents: {
+          orderBy: { createdAt: 'desc' }
         }
       },
       orderBy: { createdAt: 'desc' }

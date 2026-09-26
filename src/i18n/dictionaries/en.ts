@@ -225,7 +225,13 @@ export const en: Dictionary = {
     specifyQuantityError: 'Please specify quantity for at least one item.',
     orderUpdatedSuccess: 'Order {orderNumber} successfully updated!',
     orderUpdateError: 'Failed to update order.',
-    networkError: 'Server communication error.'
+    networkError: 'Server communication error.',
+    orderDocuments: 'Order Documents',
+    generateWarehouseRequest: 'Generate Assembly Request',
+    generatingWarehouseRequest: 'Generating...',
+    warehouseRequestGenerated: 'Assembly request generated',
+    downloadWarehouseRequest: 'Download Assembly Request',
+    outboundNumber: 'Outbound №'
   },
   units: {
     packs: 'packs',

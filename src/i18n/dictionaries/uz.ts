@@ -225,7 +225,13 @@ export const uz: Dictionary = {
     specifyQuantityError: 'Kamida bitta tovar uchun miqdorni ko‘rsating.',
     orderUpdatedSuccess: '{orderNumber} buyurtmasi muvaffaqiyatli yangilandi!',
     orderUpdateError: 'Buyurtmani yangilab bo‘lmadi.',
-    networkError: 'Server bilan aloqa xatosi.'
+    networkError: 'Server bilan aloqa xatosi.',
+    orderDocuments: 'Buyurtma hujjatlari',
+    generateWarehouseRequest: 'Yig‘ish so‘rovini yaratish',
+    generatingWarehouseRequest: 'Yaratilmoqda...',
+    warehouseRequestGenerated: 'Yig‘ish so‘rovi yaratildi',
+    downloadWarehouseRequest: 'Yig‘ish so‘rovini yuklab olish',
+    outboundNumber: 'Outbound №'
   },
   units: {
     packs: 'pachkalar',

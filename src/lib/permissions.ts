@@ -54,7 +54,10 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'orders:edit', name: 'Редактирование заказов', description: 'Внесение правок в существующие заказы' },
       { code: 'orders:status_change', name: 'Смена статусов заказов', description: 'Перевод заказов в статусы DRAFT, SENT, COMPLETED, CANCELLED' },
       { code: 'orders:comments', name: 'Комментирование заказов', description: 'Оставление заметок и комментариев к заказам' },
-      { code: 'orders:export', name: 'Выгрузка в Excel', description: 'Генерация и скачивание сформированных Excel бланков заказов' }
+      { code: 'orders:export', name: 'Выгрузка в Excel', description: 'Генерация и скачивание сформированных Excel бланков заказов' },
+      { code: 'orders:warehouse_request:create', name: 'Создание запроса на сборку', description: 'Формирование файла-запроса на сборку на склад' },
+      { code: 'orders:warehouse_request:view', name: 'Просмотр запроса на сборку', description: 'Просмотр статуса и номера запроса на сборку' },
+      { code: 'orders:warehouse_request:download', name: 'Скачивание запроса на сборку', description: 'Скачивание сформированного файла запроса на сборку' }
     ]
   },
   {
@@ -125,6 +128,9 @@ export const DEFAULT_ROLE_TEMPLATES: DefaultRoleDefinition[] = [
       'orders:status_change',
       'orders:comments',
       'orders:export',
+      'orders:warehouse_request:create',
+      'orders:warehouse_request:view',
+      'orders:warehouse_request:download',
       'products:read',
       'products:stock_update',
       'companies:read',
