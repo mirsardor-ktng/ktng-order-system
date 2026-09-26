@@ -6,7 +6,6 @@ import prisma from '../db';
 import { JWTPayload, hasPermission } from '../auth';
 import { AuditService } from '../audit/audit.service';
 import { uploadFile, downloadFile } from '../gdrive';
-import { resolveWarehouseSku } from './warehouse-sku-mapping';
 import { OrderDocument, OrderDocumentType } from '@prisma/client';
 
 export interface WarehouseRequestItemRow {
@@ -136,37 +135,49 @@ export class WarehouseAssemblyRequestService {
     let totalPacksSum = 0;
 
     for (const [sku, info] of skuPacksMap.entries()) {
+      const cleanSku = (sku || '').trim();
+      if (!cleanSku) {
+        throw new Error('У одной из позиций заказа отсутствует артикул (SKU).');
+      }
+
       if (info.packs % 10 !== 0) {
         throw new Error(
-          `Количество пачек для SKU ${sku} (${info.name}) должно быть кратно 10 (1 блоку). Текущее количество: ${info.packs}`
+          `Количество пачек для SKU ${cleanSku} (${info.name}) должно быть кратно 10 (1 блоку). Текущее количество: ${info.packs}`
         );
       }
 
       totalPacksSum += info.packs;
 
-      // Will throw if SKU is not in warehouse mapping
-      const mapping = resolveWarehouseSku(sku);
+      // Universal automatic warehouse code rule:
+      // Case code: Product SKU
+      // Block code: Product SKU + "(b)"
+      // Case name: Product Name
+      // Block name: <Product Name> (Block)
+      const caseCode = cleanSku;
+      const blockCode = `${cleanSku}(b)`;
+      const caseName = info.name || cleanSku;
+      const blockName = `${info.name || cleanSku} (Block)`;
 
       const cases = Math.floor(info.packs / 500);
       const blocks = Math.floor((info.packs % 500) / 10);
 
       if (cases > 0) {
         caseRows.push({
-          code: mapping.caseCode,
-          name: mapping.caseName,
+          code: caseCode,
+          name: caseName,
           qty: cases,
           type: 'CASE',
-          sku
+          sku: cleanSku
         });
       }
 
       if (blocks > 0) {
         blockRows.push({
-          code: mapping.blockCode,
-          name: mapping.blockName,
+          code: blockCode,
+          name: blockName,
           qty: blocks,
           type: 'BLOCK',
-          sku
+          sku: cleanSku
         });
       }
     }
@@ -421,6 +432,18 @@ export class WarehouseAssemblyRequestService {
       generatedAt: new Date().toISOString()
     };
 
+    // Safely resolve createdByUserId against foreign key constraint
+    let validUserId: string | null = null;
+    if (session.userId) {
+      const userExists = await prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { id: true }
+      });
+      if (userExists) {
+        validUserId = userExists.id;
+      }
+    }
+
     let document: OrderDocument;
 
     if (existingDoc) {
@@ -430,7 +453,7 @@ export class WarehouseAssemblyRequestService {
           fileName,
           fileId: uploadRes.fileId,
           fileUrl: uploadRes.path || `https://drive.google.com/file/d/${uploadRes.fileId}/view`,
-          createdByUserId: session.userId,
+          createdByUserId: validUserId,
           metadata: metadata as any
         }
       });
@@ -442,7 +465,7 @@ export class WarehouseAssemblyRequestService {
           fileName,
           fileId: uploadRes.fileId,
           fileUrl: uploadRes.path || `https://drive.google.com/file/d/${uploadRes.fileId}/view`,
-          createdByUserId: session.userId,
+          createdByUserId: validUserId,
           metadata: metadata as any
         }
       });
@@ -450,7 +473,7 @@ export class WarehouseAssemblyRequestService {
 
     // 12. Create Audit Log
     await AuditService.log({
-      userId: session.userId,
+      userId: validUserId,
       action: 'GENERATE_WAREHOUSE_REQUEST',
       details: `Сформирован запрос на сборку на склад для заказа ${order.orderNumber} (Outbound № ${outboundNumber})`,
       oldValue: existingDoc ? `Doc ID: ${existingDoc.id}, Outbound: ${existingMetadata?.outboundNumber || 'N/A'}` : null,
@@ -511,8 +534,19 @@ export class WarehouseAssemblyRequestService {
     const fileBuffer = await downloadFile(document.fileId, document.fileName, 'Orders');
 
     // 4. Create Audit Log
+    let validUserId: string | null = null;
+    if (session.userId) {
+      const userExists = await prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { id: true }
+      });
+      if (userExists) {
+        validUserId = userExists.id;
+      }
+    }
+
     await AuditService.log({
-      userId: session.userId,
+      userId: validUserId,
       action: 'DOWNLOAD_WAREHOUSE_REQUEST',
       details: `Скачан запрос на сборку на склад (Doc ID: ${document.id}, Файл: ${document.fileName}, Заказ: ${document.order.orderNumber})`,
       req
