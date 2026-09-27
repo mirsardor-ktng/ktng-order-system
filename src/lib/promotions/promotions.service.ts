@@ -523,25 +523,30 @@ export class PromotionsService {
     const stage3TotalPrice = currentOrderSubtotalForFixed;
 
     // ==========================================
-    // STAGE 4: Final Tiin Rounding
+    // STAGE 4: Final Tiin Rounding & Authoritative Total Calculation
     // ==========================================
-    let calculatedTotalPriceSum = 0;
-
+    // Authoritative calculation rule:
+    // Base price -> discount calculation -> calculated unit price -> round unit price to tiyin (2 decimal places)
+    // -> final line total = rounded unit price * actual quantity
+    // -> final order total = SUM(final line totals)
     lineItems.forEach(item => {
-      item.finalLinePrice = Math.round(item.stage3LinePrice * 100) / 100;
-      item.effectivePrice = item.totalPacks > 0 ? Math.round((item.finalLinePrice / item.totalPacks) * 100) / 100 : item.originalPrice;
-      calculatedTotalPriceSum += item.finalLinePrice;
+      if (item.totalPacks > 0) {
+        if (item.isBonus) {
+          item.effectivePrice = 0;
+          item.finalLinePrice = 0;
+        } else {
+          // 1. Calculate raw unit price after discounts
+          const rawUnitPrice = item.stage3LinePrice / item.totalPacks;
+          // 2. Round unit price to tiyin (2 decimal places)
+          item.effectivePrice = Math.round(rawUnitPrice * 100) / 100;
+          // 3. Authoritative line total = rounded unit price * quantity
+          item.finalLinePrice = Math.round(item.effectivePrice * item.totalPacks * 100) / 100;
+        }
+      } else {
+        item.effectivePrice = item.originalPrice;
+        item.finalLinePrice = 0;
+      }
     });
-
-    const expectedPayableTotalPrice = Math.round(stage3TotalPrice * 100) / 100;
-    const roundingDiff = Math.round((expectedPayableTotalPrice - calculatedTotalPriceSum) * 100) / 100;
-
-    if (Math.abs(roundingDiff) > 0 && lineItems.length > 0) {
-      // Find item line with maximum total price
-      const maxItem = lineItems.reduce((prev, curr) => (curr.finalLinePrice > prev.finalLinePrice ? curr : prev), lineItems[0]);
-      maxItem.finalLinePrice = Math.round((maxItem.finalLinePrice + roundingDiff) * 100) / 100;
-      maxItem.effectivePrice = maxItem.totalPacks > 0 ? Math.round((maxItem.finalLinePrice / maxItem.totalPacks) * 100) / 100 : maxItem.originalPrice;
-    }
 
     // Build final CalculatedOrderItem[] output
     let overallBasePacks = 0;

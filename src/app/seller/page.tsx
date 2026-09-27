@@ -495,7 +495,11 @@ export default function SellerDashboard() {
     const totalPacks = orderEditItems.reduce((sum, i) => sum + i.quantityPacks, 0);
     const totalBlocks = Math.floor(totalPacks / 10);
     const totalCases = Math.round((totalPacks / 500) * 100) / 100;
-    const totalPrice = Math.round(orderEditItems.reduce((sum, i) => sum + (i.quantityPacks * (Number(i.price) || 0)), 0) * 100) / 100;
+    const totalPrice = Math.round(orderEditItems.reduce((sum, i) => {
+      const unitPrice = Math.round((Number(i.price) || 0) * 100) / 100;
+      const lineTotal = Math.round(i.quantityPacks * unitPrice * 100) / 100;
+      return sum + lineTotal;
+    }, 0) * 100) / 100;
     return { totalPacks, totalBlocks, totalCases, totalPrice };
   }, [orderEditItems]);
 

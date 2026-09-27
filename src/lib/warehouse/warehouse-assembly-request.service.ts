@@ -209,29 +209,9 @@ export class WarehouseAssemblyRequestService {
 
       dateKey = `${tashkentDateParts[0]}${tashkentDateParts[1]}${tashkentDateParts[2]}`;
 
-      // Query existing warehouse documents created today to determine next sequence index
-      const docsToday = await prisma.orderDocument.findMany({
-        where: {
-          type: 'WAREHOUSE_ASSEMBLY_REQUEST',
-          metadata: {
-            path: ['dateKey'],
-            equals: dateKey
-          }
-        },
-        select: { metadata: true }
-      });
-
-      let maxIndex = 0;
-      for (const d of docsToday) {
-        const dMeta = d.metadata as any;
-        const dIdx = dMeta?.index || parseInt((dMeta?.outboundNumber || '').split('/')[1] || '0', 10);
-        if (dIdx > maxIndex) {
-          maxIndex = dIdx;
-        }
-      }
-
-      index = maxIndex + 1;
-      outboundNumber = `${dateKey}/${index}`;
+      const seq = await WarehouseAssemblyRequestService.getNextDailyOutboundNumber(dateKey);
+      outboundNumber = seq.outboundNumber;
+      index = seq.index;
     }
 
     // 7. Load Template Buffer
@@ -553,5 +533,61 @@ export class WarehouseAssemblyRequestService {
     });
 
     return { document, fileBuffer };
+  }
+
+  /**
+   * Concurrently safe, atomic daily sequence generator for Outbound №.
+   * Format: DDMMYYYY/N (in Asia/Tashkent timezone).
+   * Monotonically increments N per calendar dateKey.
+   */
+  static async getNextDailyOutboundNumber(dateKey: string): Promise<{ outboundNumber: string; index: number }> {
+    const seqKey = `WAREHOUSE_${dateKey}`;
+
+    // 1. Initial seed check if this dateKey hasn't been tracked in DailySequence yet
+    // (guarantees existing documents created prior to this sequence table are not duplicated)
+    const existingSeq = await prisma.dailySequence.findUnique({
+      where: { dateKey: seqKey }
+    });
+
+    if (!existingSeq) {
+      // Check maximum index among any existing documents on this dateKey
+      const existingDocs = await prisma.orderDocument.findMany({
+        where: {
+          type: 'WAREHOUSE_ASSEMBLY_REQUEST',
+          fileName: { contains: dateKey }
+        },
+        select: { metadata: true }
+      });
+
+      let maxExistingIndex = 0;
+      for (const d of existingDocs) {
+        const m = d.metadata as any;
+        const idx = m?.index || parseInt(((m?.outboundNumber || '').split('/')[1]) || '0', 10);
+        if (idx > maxExistingIndex) {
+          maxExistingIndex = idx;
+        }
+      }
+
+      if (maxExistingIndex > 0) {
+        await prisma.dailySequence.upsert({
+          where: { dateKey: seqKey },
+          create: { dateKey: seqKey, lastValue: maxExistingIndex },
+          update: {}
+        });
+      }
+    }
+
+    // 2. Atomic PostgreSQL statement with row lock via ON CONFLICT DO UPDATE
+    const rows = await prisma.$queryRaw<{ lastValue: number }[]>`
+      INSERT INTO "DailySequence" ("dateKey", "lastValue", "updatedAt")
+      VALUES (${seqKey}, 1, NOW())
+      ON CONFLICT ("dateKey")
+      DO UPDATE SET "lastValue" = "DailySequence"."lastValue" + 1, "updatedAt" = NOW()
+      RETURNING "lastValue";
+    `;
+
+    const nextIndex = rows[0]?.lastValue || 1;
+    const outboundNumber = `${dateKey}/${nextIndex}`;
+    return { outboundNumber, index: nextIndex };
   }
 }

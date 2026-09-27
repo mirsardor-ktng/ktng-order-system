@@ -682,7 +682,7 @@ export class OrdersService {
       // Seller / Manager manual edit: preserve explicit custom prices and quantities
       for (const item of rawItems) {
         const isBonus = item.isBonus === true || item.price === 0;
-        const effectivePrice = isBonus ? 0 : item.price;
+        const effectivePrice = isBonus ? 0 : Math.round(Number(item.price) * 100) / 100;
         const itemTotalPrice = Math.round(item.quantityPacks * effectivePrice * 100) / 100;
         const blocks = Math.floor(item.quantityPacks / 10);
         const cases = Math.round((item.quantityPacks / 500) * 100) / 100;
@@ -895,8 +895,8 @@ export class OrdersService {
               const totalBlocks = vi.totalQuantityBlocks ?? vi.quantityBlocks ?? Math.floor(totalPacks / 10);
               const totalCases = vi.totalQuantityCases ?? vi.quantityCases ?? (Math.round((totalPacks / 500) * 100) / 100);
               const basePrice = vi.price ?? vi.originalPrice ?? 0;
-              const effPrice = vi.effectivePrice ?? (vi.isBonus ? 0 : basePrice);
-              const itemTotal = vi.itemTotalPrice ?? (Math.round(totalPacks * effPrice * 100) / 100);
+              const effPrice = Math.round((vi.effectivePrice ?? (vi.isBonus ? 0 : basePrice)) * 100) / 100;
+              const itemTotal = Math.round(totalPacks * effPrice * 100) / 100;
 
               return {
                 productId: vi.productId,
