@@ -111,13 +111,21 @@ export async function getEffectivePermissions(userId: string): Promise<{ permiss
 }
 
 /**
- * Helper to enforce permission in API routes. Throws error if unauthorized.
+ * Helper to require authenticated session in API routes. Throws error if not logged in.
  */
-export function requirePermission(req: NextRequest, required: string | string[]): JWTPayload {
+export function requireAuth(req: NextRequest): JWTPayload {
   const session = getSession(req);
   if (!session) {
     throw new Error('Необходима авторизация.');
   }
+  return session;
+}
+
+/**
+ * Helper to enforce permission in API routes. Throws error if unauthorized.
+ */
+export function requirePermission(req: NextRequest, required: string | string[]): JWTPayload {
+  const session = requireAuth(req);
 
   if (!hasPermission(session, required)) {
     throw new Error('У вас недостаточно прав для выполнения этого действия.');

@@ -378,5 +378,31 @@ export const en: Dictionary = {
     unknownError: 'An unexpected error occurred.',
     fillRequiredFields: 'Please fill in all required fields.',
     invalidNumber: 'Please enter a valid numeric value.'
+  },
+  documents: {
+    orderDocuments: 'Order Documents',
+    logisticsCodes: 'Logistics Codes',
+    uploadFile: 'Upload File',
+    download: 'Download',
+    preview: 'Preview',
+    driverLicense: 'Driver License',
+    vehicleRegistration: 'Vehicle Registration',
+    noFiles: 'No files attached',
+    uploading: 'Uploading...',
+    uploadSuccess: 'File uploaded successfully',
+    uploadError: 'Failed to upload file',
+    previewError: 'Failed to open preview',
+    fileTooLarge: 'File exceeds maximum allowed size',
+    invalidFileType: 'Invalid file format',
+    uploadedAt: 'Uploaded at',
+    previewModalTitle: 'Document Preview',
+    close: 'Close',
+    fileSize: 'Size',
+    outboundNumber: 'Outbound №',
+    warehouseAssemblyRequest: 'Assembly Request',
+    generateWarehouseRequest: 'Generate Assembly Request',
+    generatingWarehouseRequest: 'Generating...',
+    warehouseRequestGenerated: 'Assembly request generated',
+    downloadWarehouseRequest: 'Download Assembly Request'
   }
 };

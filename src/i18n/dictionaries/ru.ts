@@ -378,5 +378,31 @@ export const ru: Dictionary = {
     unknownError: 'Произошла непредвиденная ошибка.',
     fillRequiredFields: 'Пожалуйста, заполните все обязательные поля.',
     invalidNumber: 'Введите корректное числовое значение.'
+  },
+  documents: {
+    orderDocuments: 'Документы заказа',
+    logisticsCodes: 'Коды от Логистики',
+    uploadFile: 'Загрузить файл',
+    download: 'Скачать',
+    preview: 'Просмотреть',
+    driverLicense: 'Права водителя',
+    vehicleRegistration: 'Техпаспорт автомобиля',
+    noFiles: 'Нет прикрепленных файлов',
+    uploading: 'Загрузка...',
+    uploadSuccess: 'Файл успешно загружен',
+    uploadError: 'Не удалось загрузить файл',
+    previewError: 'Не удалось открыть предпросмотр',
+    fileTooLarge: 'Файл превышает допустимый размер',
+    invalidFileType: 'Недопустимый формат файла',
+    uploadedAt: 'Загружено',
+    previewModalTitle: 'Просмотр документа',
+    close: 'Закрыть',
+    fileSize: 'Размер',
+    outboundNumber: 'Outbound №',
+    warehouseAssemblyRequest: 'Запрос на сборку',
+    generateWarehouseRequest: 'Сформировать запрос на сборку',
+    generatingWarehouseRequest: 'Формирование...',
+    warehouseRequestGenerated: 'Запрос на сборку сформирован',
+    downloadWarehouseRequest: 'Скачать запрос на сборку'
   }
 };

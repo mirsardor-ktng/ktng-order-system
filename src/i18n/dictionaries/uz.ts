@@ -378,5 +378,31 @@ export const uz: Dictionary = {
     unknownError: 'Kutilmagan xatolik yuz berdi.',
     fillRequiredFields: 'Iltimos, barcha majburiy maydonlarni to‘ldiring.',
     invalidNumber: 'To‘g‘ri raqamli qiymat kiriting.'
+  },
+  documents: {
+    orderDocuments: 'Buyurtma hujjatlari',
+    logisticsCodes: 'Logistika kodlari',
+    uploadFile: 'Fayl yuklash',
+    download: 'Yuklab olish',
+    preview: 'Ko‘rib chiqish',
+    driverLicense: 'Haydovchilik guvohnomasi',
+    vehicleRegistration: 'Texnik pasport',
+    noFiles: 'Biriktirilgan fayllar yo‘q',
+    uploading: 'Yuklanmoqda...',
+    uploadSuccess: 'Fayl muvaffaqiyatli yuklandi',
+    uploadError: 'Faylni yuklab bo‘lmadi',
+    previewError: 'Ko‘rib chiqishni ochib bo‘lmadi',
+    fileTooLarge: 'Fayl hajmi ruxsat etilgan limitdan oshdi',
+    invalidFileType: 'Fayl formati noto‘g‘ri',
+    uploadedAt: 'Yuklangan vaqti',
+    previewModalTitle: 'Hujjatni ko‘rish',
+    close: 'Yopish',
+    fileSize: 'Hajmi',
+    outboundNumber: 'Outbound №',
+    warehouseAssemblyRequest: 'Yig‘ish so‘rovi',
+    generateWarehouseRequest: 'Yig‘ish so‘rovini shakllantirish',
+    generatingWarehouseRequest: 'Shakllantirilmoqda...',
+    warehouseRequestGenerated: 'Yig‘ish so‘rovi shakllantirildi',
+    downloadWarehouseRequest: 'Yig‘ish so‘rovini yuklab olish'
   }
 };

@@ -1,0 +1,8 @@
+-- AlterEnum
+ALTER TYPE "OrderDocumentType" ADD VALUE 'LOGISTICS_CODES';
+ALTER TYPE "OrderDocumentType" ADD VALUE 'DRIVER_LICENSE_PHOTO';
+ALTER TYPE "OrderDocumentType" ADD VALUE 'VEHICLE_REGISTRATION_PHOTO';
+
+-- AlterTable
+ALTER TABLE "OrderDocument" ADD COLUMN "mimeType" TEXT,
+ADD COLUMN "fileSize" INTEGER;

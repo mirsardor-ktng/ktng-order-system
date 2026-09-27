@@ -391,6 +391,33 @@ export interface SellerTranslations {
   outboundNumber: string;
 }
 
+export interface DocumentsTranslations {
+  orderDocuments: string;
+  logisticsCodes: string;
+  uploadFile: string;
+  download: string;
+  preview: string;
+  driverLicense: string;
+  vehicleRegistration: string;
+  noFiles: string;
+  uploading: string;
+  uploadSuccess: string;
+  uploadError: string;
+  previewError: string;
+  fileTooLarge: string;
+  invalidFileType: string;
+  uploadedAt: string;
+  previewModalTitle: string;
+  close: string;
+  fileSize: string;
+  outboundNumber: string;
+  warehouseAssemblyRequest: string;
+  generateWarehouseRequest: string;
+  generatingWarehouseRequest: string;
+  warehouseRequestGenerated: string;
+  downloadWarehouseRequest: string;
+}
+
 export interface Dictionary {
   common: CommonTranslations;
   auth: AuthTranslations;
@@ -405,4 +432,5 @@ export interface Dictionary {
   promotions: PromotionsTranslations;
   profile: ProfileTranslations;
   errors: ErrorsTranslations;
+  documents: DocumentsTranslations;
 }

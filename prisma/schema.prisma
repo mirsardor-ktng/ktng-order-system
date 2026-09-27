@@ -206,6 +206,8 @@ model OrderDocument {
   fileId          String?
   fileName        String
   fileUrl         String
+  mimeType        String?
+  fileSize        Int?
   createdByUserId String?
   createdBy       User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdAt       DateTime          @default(now())
@@ -217,6 +219,9 @@ model OrderDocument {
 
 enum OrderDocumentType {
   WAREHOUSE_ASSEMBLY_REQUEST
+  LOGISTICS_CODES
+  DRIVER_LICENSE_PHOTO
+  VEHICLE_REGISTRATION_PHOTO
 }
 
 model PlaceholderMapping {

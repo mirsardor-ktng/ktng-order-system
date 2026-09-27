@@ -57,7 +57,13 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'orders:export', name: 'Выгрузка в Excel', description: 'Генерация и скачивание сформированных Excel бланков заказов' },
       { code: 'orders:warehouse_request:create', name: 'Создание запроса на сборку', description: 'Формирование файла-запроса на сборку на склад' },
       { code: 'orders:warehouse_request:view', name: 'Просмотр запроса на сборку', description: 'Просмотр статуса и номера запроса на сборку' },
-      { code: 'orders:warehouse_request:download', name: 'Скачивание запроса на сборку', description: 'Скачивание сформированного файла запроса на сборку' }
+      { code: 'orders:warehouse_request:download', name: 'Скачивание запроса на сборку', description: 'Скачивание сформированного файла запроса на сборку' },
+      { code: 'orders:logistics_codes:upload', name: 'Загрузка файлов кодов логистики', description: 'Загрузка файлов с кодами от отдела логистики' },
+      { code: 'orders:logistics_codes:view', name: 'Просмотр файлов кодов логистики', description: 'Просмотр списка файлов с кодами логистики' },
+      { code: 'orders:logistics_codes:download', name: 'Скачивание файлов кодов логистики', description: 'Скачивание файлов с кодами логистики' },
+      { code: 'orders:transport_docs:upload', name: 'Загрузка транспортных документов', description: 'Загрузка фотографий прав водителя и техпаспорта' },
+      { code: 'orders:transport_docs:view', name: 'Просмотр транспортных документов', description: 'Просмотр/превью фотографий прав и техпаспорта' },
+      { code: 'orders:transport_docs:download', name: 'Скачивание транспортных документов', description: 'Скачивание фотографий прав водителя и техпаспорта' }
     ]
   },
   {
@@ -161,6 +167,41 @@ export const DEFAULT_ROLE_TEMPLATES: DefaultRoleDefinition[] = [
       'orders:comments',
       'products:read',
       'promotions:read'
+    ]
+  },
+  {
+    name: 'Логистика',
+    description: 'Склад и логистика: загрузка кодов маркировки и транспортных документов',
+    isSystem: true,
+    defaultDashboard: '/seller',
+    permissions: [
+      'orders:view_all',
+      'orders:logistics_codes:upload',
+      'orders:logistics_codes:view',
+      'orders:logistics_codes:download',
+      'orders:transport_docs:upload',
+      'orders:transport_docs:view',
+      'orders:transport_docs:download',
+      'orders:warehouse_request:view',
+      'orders:warehouse_request:download',
+      'products:read'
+    ]
+  },
+  {
+    name: 'Бухгалтерия / Финансы',
+    description: 'Финансовый контроль: скачивание кодов, транспортных документов и выгрузка отчетов',
+    isSystem: true,
+    defaultDashboard: '/seller',
+    permissions: [
+      'orders:view_all',
+      'orders:logistics_codes:view',
+      'orders:logistics_codes:download',
+      'orders:transport_docs:view',
+      'orders:transport_docs:download',
+      'orders:warehouse_request:view',
+      'orders:warehouse_request:download',
+      'orders:export',
+      'analytics:view'
     ]
   }
 ];

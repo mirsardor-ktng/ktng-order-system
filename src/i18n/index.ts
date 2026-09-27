@@ -4,6 +4,7 @@ import { uz } from './dictionaries/uz';
 import { en } from './dictionaries/en';
 
 export * from './types';
+export { useTranslation, LanguageProvider } from './context';
 
 export const DEFAULT_LANGUAGE: Language = 'ru';
 export const SUPPORTED_LANGUAGES: Language[] = ['ru', 'uz', 'en'];

@@ -4,10 +4,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { 
   Briefcase, Download, Filter, Search, UserCheck, AlertCircle, 
   Loader2, DollarSign, Package, Layers, TrendingUp, ShoppingBag, Eye, MessageSquare, 
-  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet
+  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload
 } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
 import { useTranslation } from '@/i18n/context';
+import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
 
 interface CommentItem {
   id: string;
@@ -25,6 +26,8 @@ export interface OrderDocumentItem {
   fileId: string | null;
   fileName: string;
   fileUrl: string;
+  mimeType?: string | null;
+  fileSize?: number | null;
   createdByUserId?: string | null;
   createdAt: string;
   metadata?: any;
@@ -147,9 +150,79 @@ export default function SellerDashboard() {
   const canViewWarehouseRequest = isSuperadmin || permissions.includes('orders:warehouse_request:view');
   const canDownloadWarehouseRequest = isSuperadmin || permissions.includes('orders:warehouse_request:download');
 
+  const canUploadLogisticsCodes = isSuperadmin || permissions.includes('orders:logistics_codes:upload');
+  const canViewLogisticsCodes = isSuperadmin || permissions.includes('orders:logistics_codes:view');
+  const canDownloadLogisticsCodes = isSuperadmin || permissions.includes('orders:logistics_codes:download');
+
+  const canUploadTransportDocs = isSuperadmin || permissions.includes('orders:transport_docs:upload');
+  const canViewTransportDocs = isSuperadmin || permissions.includes('orders:transport_docs:view');
+  const canDownloadTransportDocs = isSuperadmin || permissions.includes('orders:transport_docs:download');
+
+  const canSeeOrderDocuments =
+    canViewWarehouseRequest || canCreateWarehouseRequest || canDownloadWarehouseRequest ||
+    canUploadLogisticsCodes || canViewLogisticsCodes || canDownloadLogisticsCodes ||
+    canUploadTransportDocs || canViewTransportDocs || canDownloadTransportDocs;
+
+  const [uploadingDocOrderId, setUploadingDocOrderId] = useState<string | null>(null);
+  const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
+
+  const [previewDoc, setPreviewDoc] = useState<{
+    id: string;
+    fileName: string;
+    uploadedAt?: string;
+    fileSize?: number | null;
+  } | null>(null);
+
+  const formatFileSize = (bytes?: number | null) => {
+    if (!bytes || bytes <= 0) return null;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  const handleUploadDocument = async (orderId: string, type: string, file: File) => {
+    try {
+      setUploadingDocOrderId(orderId);
+      setUploadingDocType(type);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', type);
+
+      const res = await fetch(`/api/orders/${orderId}/documents`, {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || t('documents.uploadError'));
+      }
+
+      showToast(t('documents.uploadSuccess'), 'success');
+
+      // Update state in-place without reloading orders!
+      setOrders(prev => prev.map(o => {
+        if (o.id === orderId) {
+          return {
+            ...o,
+            documents: [data.document, ...(o.documents || [])]
+          };
+        }
+        return o;
+      }));
+    } catch (err: any) {
+      console.error('Error uploading document:', err);
+      showToast(err.message || t('documents.uploadError'), 'error');
+    } finally {
+      setUploadingDocOrderId(null);
+      setUploadingDocType(null);
+    }
   };
 
   const handleGenerateWarehouseRequest = async (orderId: string) => {
@@ -162,7 +235,7 @@ export default function SellerDashboard() {
       if (!res.ok) {
         throw new Error(data.error || 'Failed to generate warehouse request');
       }
-      showToast(t('seller.warehouseRequestGenerated'), 'success');
+      showToast(t('documents.warehouseRequestGenerated'), 'success');
       setOrders(prev => prev.map(o => {
         if (o.id === orderId) {
           const docs = o.documents ? [...o.documents.filter(d => d.type !== 'WAREHOUSE_ASSEMBLY_REQUEST')] : [];
@@ -863,65 +936,296 @@ export default function SellerDashboard() {
                       </div>
 
                       {/* Order Documents Section */}
-                      {(canViewWarehouseRequest || canCreateWarehouseRequest || canDownloadWarehouseRequest) && (
-                        <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full bg-slate-950/20 px-3 py-2.5 rounded-xl border border-white/5">
-                          <div className="flex items-center gap-2 flex-wrap">
+                      {canSeeOrderDocuments && (
+                        <div className="pt-3 border-t border-white/5 w-full bg-slate-950/30 p-4 rounded-xl border border-white/5 space-y-4">
+                          <div className="flex items-center gap-2">
                             <FileSpreadsheet className="h-4 w-4 text-emerald-400 shrink-0" />
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                              {t('seller.orderDocuments')}:
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                              {t('documents.orderDocuments')}
                             </span>
-                            {(() => {
-                              const whDoc = order.documents?.find(d => d.type === 'WAREHOUSE_ASSEMBLY_REQUEST');
-                              if (whDoc) {
-                                const outboundNum = (whDoc.metadata as any)?.outboundNumber;
-                                return (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-bold">
-                                    {t('seller.outboundNumber')}: {outboundNum || whDoc.fileName}
-                                  </span>
-                                );
-                              }
-                              return (
-                                <span className="text-slate-500 text-xs italic">
-                                  —
-                                </span>
-                              );
-                            })()}
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            {/* Generate button if authorized */}
-                            {canCreateWarehouseRequest && (
-                              <button
-                                onClick={() => handleGenerateWarehouseRequest(order.id)}
-                                disabled={generatingRequestId === order.id}
-                                className="px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
-                                title={t('seller.generateWarehouseRequest')}
-                              >
-                                {generatingRequestId === order.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                                )}
-                                <span>{generatingRequestId === order.id ? t('seller.generatingWarehouseRequest') : t('seller.generateWarehouseRequest')}</span>
-                              </button>
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                            {/* 1. Запрос на сборку (Warehouse Assembly Request) */}
+                            {(canViewWarehouseRequest || canCreateWarehouseRequest || canDownloadWarehouseRequest) && (
+                              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800 flex flex-col justify-between gap-3">
+                                <div>
+                                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                                    <span>{t('documents.warehouseAssemblyRequest')}</span>
+                                  </div>
+                                  {(() => {
+                                    const whDoc = order.documents?.find(d => d.type === 'WAREHOUSE_ASSEMBLY_REQUEST');
+                                    if (whDoc) {
+                                      const outboundNum = (whDoc.metadata as any)?.outboundNumber;
+                                      return (
+                                        <div className="space-y-1">
+                                          <div className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-bold">
+                                            {t('documents.outboundNumber')}: {outboundNum || whDoc.fileName}
+                                          </div>
+                                          <div className="text-[11px] text-slate-400">
+                                            {new Date(whDoc.createdAt).toLocaleString(locale)}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return <div className="text-xs text-slate-500 italic">{t('documents.noFiles')}</div>;
+                                  })()}
+                                </div>
+
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {canCreateWarehouseRequest && (
+                                    <button
+                                      onClick={() => handleGenerateWarehouseRequest(order.id)}
+                                      disabled={generatingRequestId === order.id}
+                                      className="px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                                      title={t('documents.generateWarehouseRequest')}
+                                    >
+                                      {generatingRequestId === order.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <FileSpreadsheet className="h-3.5 w-3.5" />
+                                      )}
+                                      <span>
+                                        {generatingRequestId === order.id
+                                          ? t('documents.generatingWarehouseRequest')
+                                          : t('documents.generateWarehouseRequest')}
+                                      </span>
+                                    </button>
+                                  )}
+
+                                  {canDownloadWarehouseRequest && (() => {
+                                    const whDoc = order.documents?.find(d => d.type === 'WAREHOUSE_ASSEMBLY_REQUEST');
+                                    if (!whDoc) return null;
+                                    return (
+                                      <a
+                                        href={`/api/orders/documents/${whDoc.id}/download`}
+                                        download
+                                        className="btn-primary flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-bold"
+                                        title={t('documents.downloadWarehouseRequest')}
+                                      >
+                                        <Download className="h-3.5 w-3.5" />
+                                        <span>{t('documents.downloadWarehouseRequest')}</span>
+                                      </a>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
                             )}
 
-                            {/* Download button if document exists and authorized */}
-                            {canDownloadWarehouseRequest && (() => {
-                              const whDoc = order.documents?.find(d => d.type === 'WAREHOUSE_ASSEMBLY_REQUEST');
-                              if (!whDoc) return null;
-                              return (
-                                <a
-                                  href={`/api/orders/documents/${whDoc.id}/download`}
-                                  download
-                                  className="btn-primary flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-                                  title={t('seller.downloadWarehouseRequest')}
-                                >
-                                  <Download className="h-3.5 w-3.5" />
-                                  <span>{t('seller.downloadWarehouseRequest')}</span>
-                                </a>
-                              );
-                            })()}
+                            {/* 2. Коды от Логистики (Logistics Codes) */}
+                            {(canViewLogisticsCodes || canUploadLogisticsCodes || canDownloadLogisticsCodes) && (
+                              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800 flex flex-col justify-between gap-3">
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                      {t('documents.logisticsCodes')}
+                                    </span>
+                                    {canUploadLogisticsCodes && (
+                                      <label className="cursor-pointer inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 text-xs font-medium transition-colors">
+                                        <Upload className="h-3 w-3" />
+                                        <span>{uploadingDocOrderId === order.id && uploadingDocType === 'LOGISTICS_CODES' ? t('documents.uploading') : t('documents.uploadFile')}</span>
+                                        <input
+                                          type="file"
+                                          accept=".xlsx,.xls,.csv,.pdf"
+                                          className="hidden"
+                                          disabled={uploadingDocOrderId === order.id}
+                                          onChange={(e) => {
+                                            const f = e.target.files?.[0];
+                                            if (f) {
+                                              handleUploadDocument(order.id, 'LOGISTICS_CODES', f);
+                                              e.target.value = '';
+                                            }
+                                          }}
+                                        />
+                                      </label>
+                                    )}
+                                  </div>
+
+                                  {/* List of Logistics Codes Files */}
+                                  {(() => {
+                                    const codeDocs = order.documents?.filter(d => d.type === 'LOGISTICS_CODES') || [];
+                                    if (codeDocs.length === 0) {
+                                      return <div className="text-xs text-slate-500 italic">{t('documents.noFiles')}</div>;
+                                    }
+                                    return (
+                                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                                        {codeDocs.map(doc => (
+                                          <div
+                                            key={doc.id}
+                                            className="flex items-center justify-between gap-2 p-1.5 rounded bg-slate-950/40 border border-slate-800 text-xs"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <p className="text-slate-200 truncate font-medium" title={doc.fileName}>
+                                                {doc.fileName}
+                                              </p>
+                                              <p className="text-[10px] text-slate-400 flex items-center gap-2">
+                                                <span>{new Date(doc.createdAt).toLocaleDateString(locale)}</span>
+                                                {doc.fileSize ? <span>{formatFileSize(doc.fileSize)}</span> : null}
+                                              </p>
+                                            </div>
+                                            {canDownloadLogisticsCodes && (
+                                              <a
+                                                href={`/api/orders/documents/${doc.id}/download`}
+                                                download
+                                                className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors shrink-0"
+                                                title={t('documents.download')}
+                                              >
+                                                <Download className="h-3.5 w-3.5" />
+                                              </a>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 3. Транспортные документы (Transport Docs: Driver License & Vehicle Reg) */}
+                            {(canViewTransportDocs || canUploadTransportDocs || canDownloadTransportDocs) && (
+                              <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800 flex flex-col justify-between gap-3">
+                                <div className="space-y-3">
+                                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                    {t('documents.driverLicense')} / {t('documents.vehicleRegistration')}
+                                  </div>
+
+                                  {/* Sub-section: Driver License */}
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="text-slate-300 font-semibold">{t('documents.driverLicense')}</span>
+                                      {canUploadTransportDocs && (
+                                        <label className="cursor-pointer inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 text-[11px] font-medium transition-colors">
+                                          <Upload className="h-2.5 w-2.5" />
+                                          <span>{uploadingDocOrderId === order.id && uploadingDocType === 'DRIVER_LICENSE_PHOTO' ? t('documents.uploading') : t('documents.uploadFile')}</span>
+                                          <input
+                                            type="file"
+                                            accept="image/jpeg,image/png,image/webp"
+                                            className="hidden"
+                                            disabled={uploadingDocOrderId === order.id}
+                                            onChange={(e) => {
+                                              const f = e.target.files?.[0];
+                                              if (f) {
+                                                handleUploadDocument(order.id, 'DRIVER_LICENSE_PHOTO', f);
+                                                e.target.value = '';
+                                              }
+                                            }}
+                                          />
+                                        </label>
+                                      )}
+                                    </div>
+                                    {(() => {
+                                      const driverDocs = order.documents?.filter(d => d.type === 'DRIVER_LICENSE_PHOTO') || [];
+                                      if (driverDocs.length === 0) {
+                                        return <div className="text-[11px] text-slate-500 italic">{t('documents.noFiles')}</div>;
+                                      }
+                                      return (
+                                        <div className="space-y-1">
+                                          {driverDocs.map(doc => (
+                                            <div
+                                              key={doc.id}
+                                              className="flex items-center justify-between gap-2 p-1 rounded bg-slate-950/40 border border-slate-800 text-xs"
+                                            >
+                                              <span className="text-slate-300 truncate font-mono text-[11px] flex-1" title={doc.fileName}>
+                                                {doc.fileName}
+                                              </span>
+                                              <div className="flex items-center gap-1 shrink-0">
+                                                {canViewTransportDocs && (
+                                                  <button
+                                                    onClick={() => setPreviewDoc({ id: doc.id, fileName: doc.fileName, uploadedAt: doc.createdAt, fileSize: doc.fileSize })}
+                                                    className="p-1 rounded text-slate-400 hover:text-sky-400 hover:bg-slate-800 transition-colors"
+                                                    title={t('documents.preview')}
+                                                  >
+                                                    <Eye className="h-3.5 w-3.5" />
+                                                  </button>
+                                                )}
+                                                {canDownloadTransportDocs && (
+                                                  <a
+                                                    href={`/api/orders/documents/${doc.id}/download`}
+                                                    download
+                                                    className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+                                                    title={t('documents.download')}
+                                                  >
+                                                    <Download className="h-3.5 w-3.5" />
+                                                  </a>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+
+                                  {/* Sub-section: Vehicle Registration */}
+                                  <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="text-slate-300 font-semibold">{t('documents.vehicleRegistration')}</span>
+                                      {canUploadTransportDocs && (
+                                        <label className="cursor-pointer inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 text-[11px] font-medium transition-colors">
+                                          <Upload className="h-2.5 w-2.5" />
+                                          <span>{uploadingDocOrderId === order.id && uploadingDocType === 'VEHICLE_REGISTRATION_PHOTO' ? t('documents.uploading') : t('documents.uploadFile')}</span>
+                                          <input
+                                            type="file"
+                                            accept="image/jpeg,image/png,image/webp"
+                                            className="hidden"
+                                            disabled={uploadingDocOrderId === order.id}
+                                            onChange={(e) => {
+                                              const f = e.target.files?.[0];
+                                              if (f) {
+                                                handleUploadDocument(order.id, 'VEHICLE_REGISTRATION_PHOTO', f);
+                                                e.target.value = '';
+                                              }
+                                            }}
+                                          />
+                                        </label>
+                                      )}
+                                    </div>
+                                    {(() => {
+                                      const vehicleDocs = order.documents?.filter(d => d.type === 'VEHICLE_REGISTRATION_PHOTO') || [];
+                                      if (vehicleDocs.length === 0) {
+                                        return <div className="text-[11px] text-slate-500 italic">{t('documents.noFiles')}</div>;
+                                      }
+                                      return (
+                                        <div className="space-y-1">
+                                          {vehicleDocs.map(doc => (
+                                            <div
+                                              key={doc.id}
+                                              className="flex items-center justify-between gap-2 p-1 rounded bg-slate-950/40 border border-slate-800 text-xs"
+                                            >
+                                              <span className="text-slate-300 truncate font-mono text-[11px] flex-1" title={doc.fileName}>
+                                                {doc.fileName}
+                                              </span>
+                                              <div className="flex items-center gap-1 shrink-0">
+                                                {canViewTransportDocs && (
+                                                  <button
+                                                    onClick={() => setPreviewDoc({ id: doc.id, fileName: doc.fileName, uploadedAt: doc.createdAt, fileSize: doc.fileSize })}
+                                                    className="p-1 rounded text-slate-400 hover:text-sky-400 hover:bg-slate-800 transition-colors"
+                                                    title={t('documents.preview')}
+                                                  >
+                                                    <Eye className="h-3.5 w-3.5" />
+                                                  </button>
+                                                )}
+                                                {canDownloadTransportDocs && (
+                                                  <a
+                                                    href={`/api/orders/documents/${doc.id}/download`}
+                                                    download
+                                                    className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+                                                    title={t('documents.download')}
+                                                  >
+                                                    <Download className="h-3.5 w-3.5" />
+                                                  </a>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -1369,6 +1673,17 @@ export default function SellerDashboard() {
           </div>
         </div>
       )}
+
+      {/* Transport Document Preview Modal */}
+      <DocumentPreviewModal
+        isOpen={!!previewDoc}
+        onClose={() => setPreviewDoc(null)}
+        documentId={previewDoc?.id || ''}
+        fileName={previewDoc?.fileName || ''}
+        uploadedAt={previewDoc?.uploadedAt}
+        fileSize={previewDoc?.fileSize}
+        canDownload={canDownloadTransportDocs}
+      />
     </div>
   );
 }
