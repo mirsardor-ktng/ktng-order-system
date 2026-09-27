@@ -52,7 +52,8 @@ export const uz: Dictionary = {
     customerRoleDesc: 'Xaridlar & Qoralamalar',
     logout: 'Chiqish',
     loggingOut: 'Chiqilmoqda...',
-    sessionExpired: 'Sessiya muddati tugadi. Iltimos, qayta kiring.'
+    sessionExpired: 'Sessiya muddati tugadi. Iltimos, qayta kiring.',
+    sessionExpiredAnotherDevice: 'Ushbu hisobga boshqa qurilmadan kirilgani sababli sessiyangiz yakunlandi.'
   },
   navigation: {
     catalog: 'Mahsulotlar katalogi',
@@ -117,6 +118,7 @@ export const uz: Dictionary = {
     delivered: 'Yetkazildi',
     cancelled: 'Bekor qilindi',
     statusNew: 'Yangi',
+    statusAccepted: 'Qabul qilindi',
     statusDraft: 'Qoralama',
     statusConfirmed: 'Tasdiqlandi',
     statusProcessing: 'Jarayonda',
@@ -231,7 +233,10 @@ export const uz: Dictionary = {
     generatingWarehouseRequest: 'Yaratilmoqda...',
     warehouseRequestGenerated: 'Yig‘ish so‘rovi yaratildi',
     downloadWarehouseRequest: 'Yig‘ish so‘rovini yuklab olish',
-    outboundNumber: 'Outbound №'
+    outboundNumber: 'Outbound №',
+    acceptOrder: 'Qabul qilish',
+    orderAcceptedSuccess: 'Buyurtma muvaffaqiyatli qabul qilindi',
+    acceptingOrder: 'Qabul qilinmoqda...'
   },
   units: {
     packs: 'pachkalar',

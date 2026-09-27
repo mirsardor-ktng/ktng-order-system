@@ -29,6 +29,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ authenticated: false, error: 'Пользователь не найден или деактивирован' }, { status: 401 });
     }
 
+    // Check single active session per account
+    if (session.sessionVersion !== undefined && dbUser.sessionVersion !== session.sessionVersion) {
+      const cookieOptions = getCookieOptions(0);
+      const response = NextResponse.json({
+        authenticated: false,
+        code: 'SESSION_EXPIRED_ANOTHER_DEVICE',
+        error: 'Ваша сессия завершена, так как в этот аккаунт был выполнен вход с другого устройства.'
+      }, { status: 401 });
+      response.cookies.set(cookieOptions.name, '', {
+        ...cookieOptions,
+        maxAge: 0,
+        expires: new Date(0)
+      });
+      return response;
+    }
+
     let permissions = dbUser.roleTemplate?.permissions || session.permissions || [];
     let roleName = dbUser.roleTemplate?.name || session.roleName || dbUser.role || 'Пользователь';
     let defaultDashboard = dbUser.roleTemplate?.defaultDashboard || session.defaultDashboard || '/customer';
@@ -38,7 +54,7 @@ export async function GET(req: NextRequest) {
       defaultDashboard = defaultDashboard || '/admin';
     }
 
-    // Refresh JWT session with updated DB permissions
+    // Refresh JWT session with updated DB permissions and sessionVersion
     const refreshedToken = signToken({
       userId: dbUser.id,
       email: dbUser.email,
@@ -48,7 +64,8 @@ export async function GET(req: NextRequest) {
       roleName,
       permissions,
       defaultDashboard,
-      companyId: dbUser.companyId || undefined
+      companyId: dbUser.companyId || undefined,
+      sessionVersion: dbUser.sessionVersion
     });
 
     const response = NextResponse.json({

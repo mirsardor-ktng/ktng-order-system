@@ -17,6 +17,7 @@ model User {
   roleTemplate   RoleTemplate? @relation(fields: [roleTemplateId], references: [id])
   companyId      String?
   company        Company?      @relation(fields: [companyId], references: [id])
+  sessionVersion Int           @default(1)
   isActive       Boolean       @default(true)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

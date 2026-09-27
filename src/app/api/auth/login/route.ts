@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
-import { signToken, getCookieOptions } from '@/lib/auth';
+import { signToken, getCookieOptions, updateCachedSessionVersion } from '@/lib/auth';
 import { ALL_PERMISSIONS } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +51,14 @@ export async function POST(req: NextRequest) {
       defaultDashboard = defaultDashboard || '/admin';
     }
 
+    // 3.5 Increment sessionVersion for single active session per account
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { sessionVersion: { increment: 1 } },
+      select: { sessionVersion: true }
+    });
+    updateCachedSessionVersion(user.id, updatedUser.sessionVersion);
+
     // 4. Bake JWT session
     const token = signToken({
       userId: user.id,
@@ -61,7 +69,8 @@ export async function POST(req: NextRequest) {
       roleName,
       permissions,
       defaultDashboard,
-      companyId: user.companyId || undefined
+      companyId: user.companyId || undefined,
+      sessionVersion: updatedUser.sessionVersion
     });
 
     // 5. Log successful login to Audit Logs

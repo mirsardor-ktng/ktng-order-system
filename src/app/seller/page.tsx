@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Briefcase, Download, Filter, Search, UserCheck, AlertCircle, 
   Loader2, DollarSign, Package, Layers, TrendingUp, ShoppingBag, Eye, MessageSquare, 
-  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload
+  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2
 } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
 import { useTranslation } from '@/i18n/context';
@@ -92,6 +93,7 @@ interface EditOrderItemState {
 }
 
 export default function SellerDashboard() {
+  const router = useRouter();
   const { t, language, localizeError } = useTranslation();
   const locale = language === 'uz' ? 'uz-UZ' : language === 'en' ? 'en-US' : 'ru-RU';
 
@@ -99,6 +101,7 @@ export default function SellerDashboard() {
     switch (status) {
       case 'DRAFT': return t('orders.statusDraft');
       case 'NEW': return t('orders.statusNew');
+      case 'ACCEPTED': return t('orders.statusAccepted');
       case 'ASSEMBLY': return t('orders.statusAssembly');
       case 'SHIPPED': return t('orders.statusShipped');
       case 'COMPLETED': return t('orders.statusCompleted');
@@ -140,7 +143,10 @@ export default function SellerDashboard() {
   const [orderEditError, setOrderEditError] = useState('');
   const [selectedAddProductId, setSelectedAddProductId] = useState('');
   const [generatingRequestId, setGeneratingRequestId] = useState<string | null>(null);
+  const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
 
+  const canViewValidation = isSuperadmin || permissions.includes('orders:validation:view') || permissions.includes('*');
+  const canAcceptOrder = isSuperadmin || permissions.includes('orders:validation:accept') || permissions.includes('*');
   const canEditOrders = isSuperadmin || permissions.includes('orders:edit') || permissions.includes('orders:create');
   const canChangeStatus = isSuperadmin || permissions.includes('orders:status_change');
   const canUpdateStock = isSuperadmin || permissions.includes('products:stock_update') || permissions.includes('products:manage');
@@ -254,12 +260,41 @@ export default function SellerDashboard() {
     }
   };
 
+  const handleAcceptOrder = async (orderId: string) => {
+    try {
+      setAcceptingOrderId(orderId);
+      const res = await fetch(`/api/orders/${orderId}/accept`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 401 && data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+          router.push('/login?reason=session_expired');
+          return;
+        }
+        throw new Error(data.error || 'Failed to accept order');
+      }
+      showToast(t('seller.orderAcceptedSuccess'), 'success');
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'ACCEPTED' } : o));
+    } catch (err: any) {
+      console.error('Error accepting order:', err);
+      showToast(err.message || 'Error accepting order', 'error');
+    } finally {
+      setAcceptingOrderId(null);
+    }
+  };
+
   const loadAllOrders = async () => {
     try {
       const res = await fetch('/api/orders');
       if (res.ok) {
         const data = await res.json();
         setOrders(data);
+      } else if (res.status === 401) {
+        const data = await res.json().catch(() => ({}));
+        if (data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+          router.push('/login?reason=session_expired');
+        }
       }
     } catch (err) {
       console.error('Failed to load orders', err);
@@ -293,6 +328,11 @@ export default function SellerDashboard() {
             setIsSuperadmin(isSuper);
             setPermissions(meData.user.permissions || []);
           }
+        } else if (meRes.status === 401) {
+          const meData = await meRes.json().catch(() => ({}));
+          if (meData.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+            router.push('/login?reason=session_expired');
+          }
         }
       } catch (e) {}
     }
@@ -321,6 +361,10 @@ export default function SellerDashboard() {
         loadAllOrders();
       } else {
         const data = await res.json();
+        if (res.status === 401 && data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+          router.push('/login?reason=session_expired');
+          return;
+        }
         showToast(localizeError(data.error) || t('seller.statusUpdateError'), 'error');
       }
     } catch {
@@ -561,6 +605,8 @@ export default function SellerDashboard() {
         return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">{t('orders.statusDraft')}</span>;
       case 'NEW':
         return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">{t('orders.statusNew')}</span>;
+      case 'ACCEPTED':
+        return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-500/10 border border-blue-500/20 text-blue-400">{t('orders.statusAccepted')}</span>;
       case 'ASSEMBLY':
         return <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-500/10 border border-amber-500/20 text-amber-400">{t('orders.statusAssembly')}</span>;
       case 'SHIPPED':
@@ -892,6 +938,23 @@ export default function SellerDashboard() {
                             </button>
                           )}
 
+                          {/* Accept button for order validation */}
+                          {canAcceptOrder && order.status === 'NEW' && (
+                            <button
+                              onClick={() => handleAcceptOrder(order.id)}
+                              disabled={acceptingOrderId === order.id}
+                              className="px-3 py-1.5 rounded-xl border border-blue-500/30 bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                              title={t('seller.acceptOrder')}
+                            >
+                              {acceptingOrderId === order.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              )}
+                              <span>{acceptingOrderId === order.id ? t('seller.acceptingOrder') : t('seller.acceptOrder')}</span>
+                            </button>
+                          )}
+
                           {/* Status changer select if authorized */}
                           {order.status !== 'DRAFT' && (
                             canChangeStatus ? (
@@ -903,6 +966,7 @@ export default function SellerDashboard() {
                                   className="bg-slate-900 border border-white/10 rounded-lg py-1 px-2.5 text-[10px] font-bold text-slate-300 focus:outline-none focus:border-cyan-500/50 transition-all cursor-pointer"
                                 >
                                   <option value="NEW">{t('orders.statusNew')}</option>
+                                  <option value="ACCEPTED">{t('orders.statusAccepted')}</option>
                                   <option value="ASSEMBLY">{t('orders.statusAssembly')}</option>
                                   <option value="SHIPPED">{t('orders.statusShipped')}</option>
                                   <option value="COMPLETED">{t('orders.statusCompleted')}</option>

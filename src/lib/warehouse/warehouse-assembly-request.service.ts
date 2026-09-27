@@ -70,13 +70,25 @@ export class WarehouseAssemblyRequestService {
       throw new Error('Заказ не найден.');
     }
 
-    // Access check for non-view_all users
-    if (!hasPermission(session, 'orders:view_all')) {
-      if (session.companyId && order.companyId !== session.companyId) {
-        throw new Error('Доступ запрещен.');
-      }
-      if (!session.companyId && order.customerId !== session.userId) {
-        throw new Error('Доступ запрещен.');
+    // Access check for users
+    const isOwner = order.customerId === session.userId || (order as any).createdByUserId === session.userId;
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+
+    if (!isSuper && !isOwner) {
+      if (!hasPermission(session, 'orders:view_all')) {
+        if (session.companyId && order.companyId !== session.companyId) {
+          throw new Error('Доступ запрещен.');
+        }
+        if (!session.companyId && order.customerId !== session.userId) {
+          throw new Error('Доступ запрещен.');
+        }
+      } else {
+        if (order.status === 'NEW' && !hasPermission(session, 'orders:validation:view')) {
+          throw new Error('Доступ запрещен (заказ ожидает валидации).');
+        }
+        if (order.status === 'DRAFT') {
+          throw new Error('Доступ запрещен (черновик доступен только автору).');
+        }
       }
     }
 

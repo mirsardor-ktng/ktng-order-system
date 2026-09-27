@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requireAuthAsync, hasPermission, SessionExpiredError } from '@/lib/auth';
 import { downloadFile } from '@/lib/gdrive';
 
 export const dynamic = 'force-dynamic';
@@ -11,11 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    // 1. Authenticate user
-    const session = getSession(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
-    }
+    // 1. Authenticate user with sessionVersion validation
+    const session = await requireAuthAsync(req);
 
     const { searchParams } = new URL(req.url);
     const orderId = searchParams.get('id');
@@ -33,11 +30,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Заказ не найден.' }, { status: 404 });
     }
 
-    // 3. Verify permissions (RBAC)
-    // CUSTOMER can only download orders belonging to their company. SELLER, ADMIN, and MANAGER can download all.
-    if (session.role === 'CUSTOMER') {
-      if (!session.companyId || order.companyId !== session.companyId) {
-        return NextResponse.json({ error: 'Доступ запрещен (Вы можете скачивать только заказы вашей компании).' }, { status: 403 });
+    // 3. Verify permissions (RBAC & Visibility)
+    const isOwner = order.customerId === session.userId || order.createdByUserId === session.userId;
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+
+    if (!isSuper && !isOwner) {
+      // CUSTOMER can only download orders belonging to their company
+      if (!hasPermission(session, 'orders:view_all')) {
+        if (!session.companyId || order.companyId !== session.companyId) {
+          return NextResponse.json({ error: 'Доступ запрещен (Вы можете скачивать только заказы вашей компании).' }, { status: 403 });
+        }
+      } else {
+        // Seller / Manager: if order is NEW, only validator can access
+        if (order.status === 'NEW' && !hasPermission(session, 'orders:validation:view')) {
+          return NextResponse.json({ error: 'Доступ запрещен (заказ ожидает валидации).' }, { status: 403 });
+        }
+        if (order.status === 'DRAFT') {
+          return NextResponse.json({ error: 'Доступ запрещен (черновик доступен только автору).' }, { status: 403 });
+        }
       }
     }
 
@@ -92,6 +102,9 @@ export async function GET(req: NextRequest) {
       }
     });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     console.error('[Download API Error]', error);
     return NextResponse.json({ error: `Ошибка при скачивании: ${error.message}` }, { status: 500 });
   }

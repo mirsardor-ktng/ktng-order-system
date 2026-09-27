@@ -31,6 +31,11 @@ export default function SellerLayout({ children }: { children: React.ReactNode }
         const res = await fetch('/api/auth/me', { cache: 'no-store' });
         const data = await res.json();
         
+        if (data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+          router.replace('/login?reason=session_expired');
+          return;
+        }
+
         if (data.authenticated && data.user) {
           const userPerms = data.user.permissions || [];
           const isSuper = data.user.role === 'ADMIN' || data.user.roleName === 'Суперадминистратор' || userPerms.includes('*');

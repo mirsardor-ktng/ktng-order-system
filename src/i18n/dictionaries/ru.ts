@@ -52,7 +52,8 @@ export const ru: Dictionary = {
     customerRoleDesc: 'Закупки & Черновики',
     logout: 'Выйти',
     loggingOut: 'Выход...',
-    sessionExpired: 'Сессия истекла. Пожалуйста, выполните вход снова.'
+    sessionExpired: 'Сессия истекла. Пожалуйста, выполните вход снова.',
+    sessionExpiredAnotherDevice: 'Ваша сессия завершена, так как в этот аккаунт был выполнен вход с другого устройства.'
   },
   navigation: {
     catalog: 'Каталог товаров',
@@ -117,6 +118,7 @@ export const ru: Dictionary = {
     delivered: 'Доставлен',
     cancelled: 'Отменён',
     statusNew: 'Новый',
+    statusAccepted: 'Принят',
     statusDraft: 'Черновик',
     statusConfirmed: 'Подтверждён',
     statusProcessing: 'В обработке',
@@ -231,7 +233,10 @@ export const ru: Dictionary = {
     generatingWarehouseRequest: 'Формирование...',
     warehouseRequestGenerated: 'Запрос на сборку сформирован',
     downloadWarehouseRequest: 'Скачать запрос на сборку',
-    outboundNumber: 'Outbound №'
+    outboundNumber: 'Outbound №',
+    acceptOrder: 'Принять',
+    orderAcceptedSuccess: 'Заказ успешно принят',
+    acceptingOrder: 'Принятие...'
   },
   units: {
     packs: 'пачки',

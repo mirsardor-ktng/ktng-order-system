@@ -52,7 +52,8 @@ export const en: Dictionary = {
     customerRoleDesc: 'Purchasing & Drafts',
     logout: 'Log Out',
     loggingOut: 'Logging out...',
-    sessionExpired: 'Session expired. Please log in again.'
+    sessionExpired: 'Session expired. Please log in again.',
+    sessionExpiredAnotherDevice: 'Your session has expired because this account was signed in on another device.'
   },
   navigation: {
     catalog: 'Product Catalog',
@@ -117,6 +118,7 @@ export const en: Dictionary = {
     delivered: 'Delivered',
     cancelled: 'Cancelled',
     statusNew: 'New',
+    statusAccepted: 'Accepted',
     statusDraft: 'Draft',
     statusConfirmed: 'Confirmed',
     statusProcessing: 'Processing',
@@ -231,7 +233,10 @@ export const en: Dictionary = {
     generatingWarehouseRequest: 'Generating...',
     warehouseRequestGenerated: 'Assembly request generated',
     downloadWarehouseRequest: 'Download Assembly Request',
-    outboundNumber: 'Outbound №'
+    outboundNumber: 'Outbound №',
+    acceptOrder: 'Accept',
+    orderAcceptedSuccess: 'Order successfully accepted',
+    acceptingOrder: 'Accepting...'
   },
   units: {
     packs: 'packs',

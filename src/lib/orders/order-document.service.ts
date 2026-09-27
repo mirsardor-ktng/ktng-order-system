@@ -134,7 +134,9 @@ export class OrderDocumentService {
         id: true,
         orderNumber: true,
         companyId: true,
-        customerId: true
+        customerId: true,
+        createdByUserId: true,
+        status: true
       }
     });
 
@@ -142,12 +144,24 @@ export class OrderDocumentService {
       throw new Error('Заказ не найден.');
     }
 
-    if (!hasPermission(session, 'orders:view_all')) {
-      if (session.companyId && order.companyId !== session.companyId) {
-        throw new Error('Доступ запрещен.');
-      }
-      if (!session.companyId && order.customerId !== session.userId) {
-        throw new Error('Доступ запрещен.');
+    const isOwner = order.customerId === session.userId || order.createdByUserId === session.userId;
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+
+    if (!isSuper && !isOwner) {
+      if (!hasPermission(session, 'orders:view_all')) {
+        if (session.companyId && order.companyId !== session.companyId) {
+          throw new Error('Доступ запрещен.');
+        }
+        if (!session.companyId && order.customerId !== session.userId) {
+          throw new Error('Доступ запрещен.');
+        }
+      } else {
+        if (order.status === 'NEW' && !hasPermission(session, 'orders:validation:view')) {
+          throw new Error('Доступ запрещен (заказ ожидает валидации).');
+        }
+        if (order.status === 'DRAFT') {
+          throw new Error('Доступ запрещен (черновик доступен только автору).');
+        }
       }
     }
 
@@ -287,7 +301,9 @@ export class OrderDocumentService {
             id: true,
             orderNumber: true,
             companyId: true,
-            customerId: true
+            customerId: true,
+            createdByUserId: true,
+            status: true
           }
         }
       }
@@ -315,13 +331,25 @@ export class OrderDocumentService {
       }
     }
 
-    // Access check for order ownership
-    if (!hasPermission(session, 'orders:view_all')) {
-      if (session.companyId && document.order.companyId !== session.companyId) {
-        throw new Error('Доступ запрещен.');
-      }
-      if (!session.companyId && document.order.customerId !== session.userId) {
-        throw new Error('Доступ запрещен.');
+    // Access check for order ownership and validation status
+    const isOwner = document.order.customerId === session.userId || (document.order as any).createdByUserId === session.userId;
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+
+    if (!isSuper && !isOwner) {
+      if (!hasPermission(session, 'orders:view_all')) {
+        if (session.companyId && document.order.companyId !== session.companyId) {
+          throw new Error('Доступ запрещен.');
+        }
+        if (!session.companyId && document.order.customerId !== session.userId) {
+          throw new Error('Доступ запрещен.');
+        }
+      } else {
+        if (document.order.status === 'NEW' && !hasPermission(session, 'orders:validation:view')) {
+          throw new Error('Доступ запрещен (заказ ожидает валидации).');
+        }
+        if (document.order.status === 'DRAFT') {
+          throw new Error('Доступ запрещен (черновик доступен только автору).');
+        }
       }
     }
 
@@ -381,7 +409,9 @@ export class OrderDocumentService {
             id: true,
             orderNumber: true,
             companyId: true,
-            customerId: true
+            customerId: true,
+            createdByUserId: true,
+            status: true
           }
         }
       }
@@ -404,13 +434,25 @@ export class OrderDocumentService {
       throw new Error('Недостаточно прав для просмотра транспортных документов.');
     }
 
-    // Access check for order ownership
-    if (!hasPermission(session, 'orders:view_all')) {
-      if (session.companyId && document.order.companyId !== session.companyId) {
-        throw new Error('Доступ запрещен.');
-      }
-      if (!session.companyId && document.order.customerId !== session.userId) {
-        throw new Error('Доступ запрещен.');
+    // Access check for order ownership and validation status
+    const isOwner = document.order.customerId === session.userId || (document.order as any).createdByUserId === session.userId;
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+
+    if (!isSuper && !isOwner) {
+      if (!hasPermission(session, 'orders:view_all')) {
+        if (session.companyId && document.order.companyId !== session.companyId) {
+          throw new Error('Доступ запрещен.');
+        }
+        if (!session.companyId && document.order.customerId !== session.userId) {
+          throw new Error('Доступ запрещен.');
+        }
+      } else {
+        if (document.order.status === 'NEW' && !hasPermission(session, 'orders:validation:view')) {
+          throw new Error('Доступ запрещен (заказ ожидает валидации).');
+        }
+        if (document.order.status === 'DRAFT') {
+          throw new Error('Доступ запрещен (черновик доступен только автору).');
+        }
       }
     }
 

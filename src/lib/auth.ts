@@ -17,6 +17,7 @@ export interface JWTPayload {
   permissions?: string[];
   defaultDashboard?: string;
   companyId?: string;
+  sessionVersion?: number;
 }
 
 /**
@@ -110,6 +111,77 @@ export async function getEffectivePermissions(userId: string): Promise<{ permiss
   }
 }
 
+export class SessionExpiredError extends Error {
+  code = 'SESSION_EXPIRED_ANOTHER_DEVICE';
+  constructor(message = 'Ваша сессия завершена, так как в этот аккаунт был выполнен вход с другого устройства.') {
+    super(message);
+    this.name = 'SessionExpiredError';
+  }
+}
+
+// In-memory cache for fast sessionVersion lookup with 5s TTL
+const sessionVersionCache = new Map<string, { version: number; cachedAt: number }>();
+
+export function updateCachedSessionVersion(userId: string, version: number) {
+  sessionVersionCache.set(userId, { version, cachedAt: Date.now() });
+}
+
+export function invalidateCachedSessionVersion(userId: string) {
+  sessionVersionCache.delete(userId);
+}
+
+export async function getUserSessionVersion(userId: string): Promise<number | null> {
+  const now = Date.now();
+  const cached = sessionVersionCache.get(userId);
+  if (cached && (now - cached.cachedAt < 5000)) {
+    return cached.version;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { sessionVersion: true }
+  });
+
+  if (!user) return null;
+  sessionVersionCache.set(userId, { version: user.sessionVersion, cachedAt: now });
+  return user.sessionVersion;
+}
+
+export async function validateSessionVersion(session: JWTPayload | null): Promise<boolean> {
+  if (!session || !session.userId) return false;
+  if (session.sessionVersion === undefined) return false;
+
+  const currentVersion = await getUserSessionVersion(session.userId);
+  if (currentVersion === null) return false;
+  return currentVersion === session.sessionVersion;
+}
+
+export async function getSessionAsync(req: NextRequest): Promise<JWTPayload | null> {
+  const session = getSession(req);
+  if (!session) return null;
+  const isValid = await validateSessionVersion(session);
+  if (!isValid) return null;
+  return session;
+}
+
+/**
+ * Async helper to require authenticated session in API routes with session version validation.
+ * Throws SessionExpiredError if signed in on another device.
+ */
+export async function requireAuthAsync(req: NextRequest): Promise<JWTPayload> {
+  const session = getSession(req);
+  if (!session) {
+    throw new Error('Необходима авторизация.');
+  }
+
+  const isValid = await validateSessionVersion(session);
+  if (!isValid) {
+    throw new SessionExpiredError();
+  }
+
+  return session;
+}
+
 /**
  * Helper to require authenticated session in API routes. Throws error if not logged in.
  */
@@ -136,13 +208,10 @@ export function requirePermission(req: NextRequest, required: string | string[])
 
 /**
  * Async version of requirePermission that validates against live DB permissions
- * if the JWT session token is stale (e.g. rights assigned without re-login).
+ * and verifies active sessionVersion against other device logins.
  */
 export async function requirePermissionAsync(req: NextRequest, required: string | string[]): Promise<JWTPayload> {
-  const session = getSession(req);
-  if (!session) {
-    throw new Error('Необходима авторизация.');
-  }
+  const session = await requireAuthAsync(req);
 
   if (hasPermission(session, required)) {
     return session;

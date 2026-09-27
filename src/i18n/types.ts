@@ -53,6 +53,7 @@ export interface AuthTranslations {
   logout: string;
   loggingOut: string;
   sessionExpired: string;
+  sessionExpiredAnotherDevice: string;
 }
 
 export interface NavigationTranslations {
@@ -120,6 +121,7 @@ export interface OrdersTranslations {
   delivered: string;
   cancelled: string;
   statusNew: string;
+  statusAccepted: string;
   statusDraft: string;
   statusConfirmed: string;
   statusProcessing: string;
@@ -389,6 +391,9 @@ export interface SellerTranslations {
   warehouseRequestGenerated: string;
   downloadWarehouseRequest: string;
   outboundNumber: string;
+  acceptOrder: string;
+  orderAcceptedSuccess: string;
+  acceptingOrder: string;
 }
 
 export interface DocumentsTranslations {

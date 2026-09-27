@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession, hasPermission } from '@/lib/auth';
+import { requireAuthAsync, hasPermission, SessionExpiredError } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
+import { OrdersService } from '@/lib/orders/orders.service';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
-    }
+    const session = await requireAuthAsync(req);
 
     const body = await req.json();
     const { orderId, text } = body;
@@ -24,8 +22,10 @@ export async function POST(req: NextRequest) {
       select: {
         id: true,
         customerId: true,
+        createdByUserId: true,
         companyId: true,
-        orderNumber: true
+        orderNumber: true,
+        status: true
       }
     });
 
@@ -33,8 +33,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Заказ не найден.' }, { status: 404 });
     }
 
+    if (!OrdersService.canUserAccessOrder(session, order)) {
+      return NextResponse.json({ error: 'Доступ ограничен. Недостаточно прав.' }, { status: 403 });
+    }
+
     const hasCommentsPerm = hasPermission(session, 'orders:comments');
-    const isOwner = order.customerId === session.userId;
+    const isOwner = order.customerId === session.userId || order.createdByUserId === session.userId;
     const isSameCompany = Boolean(session.companyId && order.companyId && order.companyId === session.companyId);
 
     if (!hasCommentsPerm && !isOwner && !isSameCompany) {
@@ -60,6 +64,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, comment });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     console.error('[Add Comment Error]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

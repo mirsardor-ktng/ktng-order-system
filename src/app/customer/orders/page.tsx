@@ -145,6 +145,11 @@ function CustomerOrdersContent() {
       if (res.ok) {
         const data = await res.json();
         setOrders(data);
+      } else if (res.status === 401) {
+        const data = await res.json().catch(() => ({}));
+        if (data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+          window.location.href = '/login?reason=session_expired';
+        }
       }
     } catch (err) {
       console.error('Failed to load orders history', err);
@@ -243,6 +248,13 @@ function CustomerOrdersContent() {
           <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 text-xs font-bold text-indigo-400 glow-text-primary">
             <Clock className="h-3.5 w-3.5 animate-pulse-slow" />
             <span>{t('orders.statusNew')}</span>
+          </span>
+        );
+      case 'ACCEPTED':
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 text-xs font-bold text-blue-400">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span>{t('orders.statusAccepted')}</span>
           </span>
         );
       case 'ASSEMBLY':

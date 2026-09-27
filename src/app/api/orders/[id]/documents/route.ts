@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth';
+import { requireAuthAsync, SessionExpiredError } from '@/lib/auth';
 import { OrderDocumentService } from '@/lib/orders/order-document.service';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +9,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = requireAuth(req);
+    const session = await requireAuthAsync(req);
     const orderId = params.id;
 
     if (!orderId) {
@@ -43,6 +43,9 @@ export async function POST(
 
     return NextResponse.json({ success: true, document }, { status: 201 });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     console.error('[Upload Document Error]', error);
     const message = error.message || 'Ошибка загрузки документа.';
     const status = message.includes('Недостаточно прав') || message.includes('Доступ запрещен')

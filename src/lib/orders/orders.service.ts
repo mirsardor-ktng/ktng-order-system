@@ -13,30 +13,120 @@ import { JWTPayload, hasPermission } from '../auth';
 
 export class OrdersService {
   /**
-   * GET: Retrieves order history.
+   * Helper to verify if user has access to a specific order.
    */
-  static async getOrders(session: JWTPayload, options: { customerId?: string; status?: string }) {
+  static canUserAccessOrder(
+    session: JWTPayload,
+    order: { customerId: string; createdByUserId?: string | null; companyId?: string | null; status: string }
+  ): boolean {
+    if (session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*')) {
+      return true;
+    }
+
+    const isOwner = order.customerId === session.userId || order.createdByUserId === session.userId;
+    if (isOwner) return true;
+
+    const isSameCompany = Boolean(session.companyId && order.companyId && session.companyId === order.companyId);
+
+    // DRAFT orders are only accessible by the owner
+    if (order.status === 'DRAFT') {
+      return isOwner;
+    }
+
+    if (!hasPermission(session, 'orders:view_all')) {
+      return isSameCompany;
+    }
+
+    // Seller / Manager with orders:view_all:
+    if (order.status === 'NEW') {
+      return hasPermission(session, 'orders:validation:view') || isSameCompany;
+    }
+
+    return true;
+  }
+
+  /**
+   * GET: Retrieves order history with server-side visibility filtering.
+   */
+  static async getOrders(session: JWTPayload, options: { customerId?: string; status?: string } = {}) {
     const { customerId, status } = options;
     const whereClause: any = {};
 
-    if (!hasPermission(session, 'orders:view_all')) {
+    const canViewAll = hasPermission(session, 'orders:view_all');
+    const canViewValidation =
+      hasPermission(session, 'orders:validation:view') ||
+      session.role === 'ADMIN' ||
+      session.roleName === 'Суперадминистратор' ||
+      session.permissions?.includes('*');
+
+    if (!canViewAll) {
+      // Customer: can view their company's orders or own orders in any status
       if (session.companyId) {
         whereClause.companyId = session.companyId;
+        // DRAFT orders: if a company customer is viewing, only their own DRAFTs are visible
+        if (status === 'DRAFT') {
+          whereClause.OR = [
+            { createdByUserId: session.userId },
+            { customerId: session.userId }
+          ];
+        } else if (!status) {
+          whereClause.OR = [
+            { status: { not: 'DRAFT' } },
+            { createdByUserId: session.userId },
+            { customerId: session.userId }
+          ];
+        }
       } else {
         whereClause.customerId = session.userId;
       }
+      if (status && status !== 'DRAFT') {
+        whereClause.status = status;
+      }
     } else {
+      // Manager / Seller with orders:view_all
       if (customerId) {
         whereClause.customerId = customerId;
       }
-      // View all managers should not see DRAFT orders unless explicitly requested
-      if (!status) {
-        whereClause.status = { not: 'DRAFT' };
-      }
-    }
 
-    if (status) {
-      whereClause.status = status;
+      if (canViewValidation) {
+        // Validator: sees NEW, ACCEPTED, and other active statuses
+        if (status) {
+          whereClause.status = status;
+        } else {
+          whereClause.status = { not: 'DRAFT' };
+        }
+      } else {
+        // Normal Seller WITHOUT validation permission:
+        // Must NOT see other companies' NEW or DRAFT orders!
+        const sameCompanyOrOwn: any[] = [
+          { createdByUserId: session.userId },
+          { customerId: session.userId }
+        ];
+        if (session.companyId) {
+          sameCompanyOrOwn.push({ companyId: session.companyId });
+        }
+
+        if (status) {
+          if (status === 'NEW') {
+            whereClause.status = 'NEW';
+            whereClause.OR = sameCompanyOrOwn;
+          } else if (status === 'DRAFT') {
+            whereClause.status = 'DRAFT';
+            whereClause.OR = [
+              { createdByUserId: session.userId },
+              { customerId: session.userId }
+            ];
+          } else {
+            whereClause.status = status;
+          }
+        } else {
+          // General list: exclude DRAFT & other companies' NEW
+          whereClause.OR = [
+            { status: { notIn: ['DRAFT', 'NEW'] } },
+            ...sameCompanyOrOwn
+          ];
+        }
+      }
     }
 
     return await prisma.order.findMany({
@@ -510,6 +600,14 @@ export class OrdersService {
     } else {
       if (existingOrder.status !== 'DRAFT' && existingOrder.status !== 'NEW') {
         throw new Error('Заказ можно редактировать только в статусе DRAFT или NEW.');
+      }
+      if (existingOrder.status === 'NEW') {
+        const isOwner = existingOrder.customerId === session.userId || existingOrder.createdByUserId === session.userId;
+        const isSameCompany = Boolean(session.companyId && existingOrder.companyId && session.companyId === existingOrder.companyId);
+        const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+        if (!isSuper && !isOwner && !isSameCompany && !hasPermission(session, 'orders:validation:view')) {
+          throw new Error('Доступ запрещен (заказ ожидает валидации).');
+        }
       }
     }
 
@@ -999,7 +1097,7 @@ export class OrdersService {
    */
   static async updateOrderStatus(session: JWTPayload, data: { orderId: string; status: string }, req?: NextRequest) {
     const { orderId, status } = data;
-    const VALID_STATUSES = ['NEW', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'];
+    const VALID_STATUSES = ['NEW', 'ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'];
 
     if (!VALID_STATUSES.includes(status)) throw new Error('Недопустимый статус заказа.');
 
@@ -1111,6 +1209,70 @@ export class OrdersService {
     return {
       order: updatedOrder,
       message: `Статус заказа ${order.orderNumber} изменен на "${status}"`
+    };
+  }
+
+  /**
+   * POST: Accepts a NEW order (NEW -> ACCEPTED) with atomic concurrency protection.
+   */
+  static async acceptOrder(session: JWTPayload, orderId: string, req?: NextRequest) {
+    if (!hasPermission(session, 'orders:validation:accept')) {
+      throw new Error('У вас недостаточно прав для принятия заказа.');
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, orderNumber: true, status: true }
+    });
+
+    if (!order) {
+      throw new Error('Заказ не найден.');
+    }
+
+    if (order.status === 'ACCEPTED') {
+      throw new Error('Заказ уже принят.');
+    }
+
+    if (order.status !== 'NEW') {
+      throw new Error(`Невозможно принять заказ в текущем статусе: ${order.status}.`);
+    }
+
+    // Atomic race-condition safe update: exactly 1 concurrent request can succeed
+    const updateResult = await prisma.order.updateMany({
+      where: {
+        id: orderId,
+        status: 'NEW'
+      },
+      data: {
+        status: 'ACCEPTED'
+      }
+    });
+
+    if (updateResult.count === 0) {
+      throw new Error('Заказ уже принят другим пользователем или его статус был изменен.');
+    }
+
+    await AuditService.log({
+      userId: session.userId,
+      action: 'ACCEPT_ORDER',
+      details: `Заказ №${order.orderNumber} принят в обработку (NEW -> ACCEPTED)`,
+      oldValue: 'NEW',
+      newValue: 'ACCEPTED',
+      req
+    });
+
+    const acceptedOrder = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        customer: { select: { id: true, name: true, email: true } },
+        company: { select: { id: true, name: true, code: true } }
+      }
+    });
+
+    return {
+      success: true,
+      order: acceptedOrder,
+      message: `Заказ ${order.orderNumber} успешно принят.`
     };
   }
 

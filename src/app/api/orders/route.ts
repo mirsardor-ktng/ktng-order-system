@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 import { OrdersService } from '@/lib/orders/orders.service';
 export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   try {
-    const session = requirePermission(req, ['orders:view_all', 'orders:view_own', 'orders:create']);
+    const session = await requirePermissionAsync(req, ['orders:view_all', 'orders:view_own', 'orders:create']);
     const { searchParams } = new URL(req.url);
     const customerId = searchParams.get('customerId') || undefined;
     const status = searchParams.get('status') || undefined;
     const orders = await OrdersService.getOrders(session as any, { customerId, status });
     return NextResponse.json(orders);
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     return NextResponse.json({ error: error.message }, { status: 403 });
   }
 }
 export async function POST(req: NextRequest) {
   try {
-    const session = requirePermission(req, 'orders:create');
+    const session = await requirePermissionAsync(req, 'orders:create');
     const body = await req.json();
     const { items, status } = body;
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -29,6 +32,9 @@ export async function POST(req: NextRequest) {
       message: result.message
     });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     console.error('[Create Order Error]', error);
     const userMsg = formatOrderErrorMessage(error);
     return NextResponse.json({ error: userMsg }, { status: 500 });
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
 }
 export async function PUT(req: NextRequest) {
   try {
-    const session = requirePermission(req, ['orders:edit', 'orders:create']);
+    const session = await requirePermissionAsync(req, ['orders:edit', 'orders:create']);
     const body = await req.json();
     const { orderId, items, status } = body;
     if (!orderId) {
@@ -52,6 +58,9 @@ export async function PUT(req: NextRequest) {
       message: result.message
     });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     console.error('[Update Order Error]', error);
     const userMsg = formatOrderErrorMessage(error);
     return NextResponse.json({ error: userMsg }, { status: 500 });

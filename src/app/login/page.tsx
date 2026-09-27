@@ -15,10 +15,20 @@ export default function Login() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState('');
 
-  // Check if session is already active
+  // Check if session is already active or redirected due to expiration
   useEffect(() => {
     let isMounted = true;
     async function checkSession() {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('reason') === 'session_expired') {
+          if (isMounted) {
+            setError(t('auth.sessionExpiredAnotherDevice'));
+            setCheckingSession(false);
+          }
+          return;
+        }
+      }
       try {
         const res = await fetch('/api/auth/me', { cache: 'no-store' });
         if (!res.ok) {

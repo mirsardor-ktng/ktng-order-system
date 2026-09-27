@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth';
+import { requireAuthAsync, SessionExpiredError } from '@/lib/auth';
 import { OrderDocumentService } from '@/lib/orders/order-document.service';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: { documentId: string } }
 ) {
   try {
-    const session = requireAuth(req);
+    const session = await requireAuthAsync(req);
     const documentId = params.documentId;
     if (!documentId) {
       return NextResponse.json({ error: 'ID документа не указан.' }, { status: 400 });
@@ -32,6 +32,9 @@ export async function GET(
       }
     });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     console.error('[Document Download Error]', error);
     const message = error.message || 'Ошибка скачивания документа.';
     const status = message.includes('Недостаточно прав') || message.includes('Доступ запрещен')

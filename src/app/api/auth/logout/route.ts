@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCookieOptions, getSession } from '@/lib/auth';
+import { getCookieOptions, getSession, invalidateCachedSessionVersion } from '@/lib/auth';
 import prisma from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +11,12 @@ export async function POST(req: NextRequest) {
   try {
     const session = getSession(req);
     if (session) {
+      invalidateCachedSessionVersion(session.userId);
+      await prisma.user.update({
+        where: { id: session.userId },
+        data: { sessionVersion: { increment: 1 } }
+      }).catch(() => {});
+
       await prisma.auditLog.create({
         data: {
           userId: session.userId,
