@@ -374,6 +374,7 @@ export const en: Dictionary = {
   errors: {
     customerNotFound: 'Customer not found.',
     insufficientStock: 'Insufficient warehouse stock.',
+    stockInsufficient: 'Insufficient stock for item: {productName}.',
     bonusStockInsufficient: 'Insufficient stock for bonus item: {productName}.',
     invalidOrder: 'Invalid order data.',
     promotionNotAvailable: 'Selected promotion is no longer available.',

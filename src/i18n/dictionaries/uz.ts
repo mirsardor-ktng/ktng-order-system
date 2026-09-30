@@ -374,6 +374,7 @@ export const uz: Dictionary = {
   errors: {
     customerNotFound: 'Mijoz topilmadi.',
     insufficientStock: 'Omborda qoldiq yetarli emas.',
+    stockInsufficient: 'Mahsulot qoldig‘i yetarli emas: {productName}.',
     bonusStockInsufficient: 'Bonus mahsulot qoldig‘i yetarli emas: {productName}.',
     invalidOrder: 'Buyurtma ma’lumotlari noto‘g‘ri.',
     promotionNotAvailable: 'Tanlangan aksiya endi mavjud emas.',

@@ -65,7 +65,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'orders:transport_docs:view', name: 'Просмотр транспортных документов', description: 'Просмотр/превью фотографий прав и техпаспорта' },
       { code: 'orders:transport_docs:download', name: 'Скачивание транспортных документов', description: 'Скачивание фотографий прав водителя и техпаспорта' },
       { code: 'orders:validation:view', name: 'Просмотр заказов на валидации', description: 'Просмотр новых заказов, ожидающих принятия' },
-      { code: 'orders:validation:accept', name: 'Принятие заказов (валидация)', description: 'Принятие новых заказов в обработку (перевод NEW -> ACCEPTED)' }
+      { code: 'orders:validation:accept', name: 'Принятие заказов (валидация)', description: 'Принятие новых заказов в обработку (перевод NEW -> ACCEPTED)' },
+      { code: 'orders:delete', name: 'Удаление заказов', description: 'Удаление тестовых и неактуальных заказов с безопасным возвратом остатков' }
     ]
   },
   {

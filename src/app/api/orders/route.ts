@@ -8,7 +8,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const customerId = searchParams.get('customerId') || undefined;
     const status = searchParams.get('status') || undefined;
-    const orders = await OrdersService.getOrders(session as any, { customerId, status });
+    const startDate = searchParams.get('startDate') || searchParams.get('from') || undefined;
+    const endDate = searchParams.get('endDate') || searchParams.get('to') || undefined;
+    const orders = await OrdersService.getOrders(session as any, { customerId, status, startDate, endDate });
     return NextResponse.json(orders);
   } catch (error: any) {
     if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {

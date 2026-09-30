@@ -55,30 +55,12 @@ export async function generateExcelOrder(
 
   // Calculate global breakdown totals using canonical totalQuantityPacks with packs fallback
   const totalPacksSum = orderData.items.reduce((sum, item) => sum + (item.totalQuantityPacks ?? item.packs), 0);
-  const totalCasesBreakdown = Math.floor(totalPacksSum / 500);
+  const totalCases = Math.floor(totalPacksSum / 500);
+  const totalBlocks = Math.floor(totalPacksSum / 10);
   const totalBlocksBreakdown = Math.floor((totalPacksSum % 500) / 10);
   const totalPacksBreakdown = totalPacksSum % 10;
 
-  // 1. Process Global / Meta Placeholders (e.g. {CLIENT_NAME}, {ORDER_DATE})
-  worksheet.eachRow((row) => {
-    row.eachCell((cell) => {
-      const val = cell.value;
-      if (typeof val === 'string') {
-        let text = val;
-        if (text.includes('{CLIENT_NAME}')) text = text.replace('{CLIENT_NAME}', orderData.clientName);
-        if (text.includes('{ORDER_DATE}')) text = text.replace('{ORDER_DATE}', orderData.orderDate);
-        if (text.includes('{ORDER_NUMBER}')) text = text.replace('{ORDER_NUMBER}', orderData.orderNumber);
-        if (text.includes('{TOTAL_BLOCKS}')) text = text.replace('{TOTAL_BLOCKS}', String(totalBlocksBreakdown));
-        if (text.includes('{TOTAL_CASES}')) text = text.replace('{TOTAL_CASES}', String(totalCasesBreakdown));
-        if (text.includes('{TOTAL_PACKS}')) text = text.replace('{TOTAL_PACKS}', String(totalPacksBreakdown));
-        if (text.includes('{TOTAL_QTY_PACKS}')) text = text.replace('{TOTAL_QTY_PACKS}', String(totalPacksSum));
-        if (text.includes('{TOTAL_PRICE}')) text = text.replace('{TOTAL_PRICE}', String(orderData.totalPrice));
-        cell.value = text;
-      }
-    });
-  });
-
-  // 2. Identify repeating row or static rows
+  // 1. Identify repeating row or static rows
   let dynamicRowIndex = -1;
   
   // Find dynamic list marker row (e.g. row that contains {SKU_NAME})
@@ -230,6 +212,31 @@ export async function generateExcelOrder(
       }
     });
   }
+
+  // 3. Process Global / Order-Level Placeholders (e.g. {CLIENT_NAME}, {ORDER_DATE}, {TOTAL_BLOCKS}, {TOTAL_CASES})
+  const globalVars: Record<string, any> = {
+    '{CLIENT_NAME}': orderData.clientName,
+    '{ORDER_DATE}': orderData.orderDate,
+    '{ORDER_NUMBER}': orderData.orderNumber,
+    '{TOTAL_BLOCKS}': totalBlocks,
+    '{TOTAL_CASES}': totalCases,
+    '{TOTAL_PACKS}': totalPacksSum,
+    '{TOTAL_QTY_PACKS}': totalPacksSum,
+    '{TOTAL_PRICE}': orderData.totalPrice,
+    '{BREAKDOWN_BLOCKS}': totalBlocksBreakdown,
+    '{BREAKDOWN_PACKS}': totalPacksBreakdown,
+    '{REM_BLOCKS}': totalBlocksBreakdown,
+    '{REM_PACKS}': totalPacksBreakdown
+  };
+
+  worksheet.eachRow((row) => {
+    row.eachCell((cell) => {
+      const val = cell.value;
+      if (typeof val === 'string') {
+        cell.value = resolveAndEvaluate(val, globalVars);
+      }
+    });
+  });
 
   const outputBuffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(outputBuffer);

@@ -10,6 +10,7 @@ import { PromotionsService } from '../promotions/promotions.service';
 import { ProductGroupService, SkuAllocation } from '../product-groups/product-groups.service';
 
 import { JWTPayload, hasPermission } from '../auth';
+import { getTashkentStartOfDay, getTashkentStartOfNextDay } from '../date-utils';
 
 export class OrdersService {
   /**
@@ -46,10 +47,10 @@ export class OrdersService {
   }
 
   /**
-   * GET: Retrieves order history with server-side visibility filtering.
+   * GET: Retrieves order history with server-side visibility and date filtering.
    */
-  static async getOrders(session: JWTPayload, options: { customerId?: string; status?: string } = {}) {
-    const { customerId, status } = options;
+  static async getOrders(session: JWTPayload, options: { customerId?: string; status?: string; startDate?: string; endDate?: string } = {}) {
+    const { customerId, status, startDate, endDate } = options;
     const whereClause: any = {};
 
     const canViewAll = hasPermission(session, 'orders:view_all');
@@ -126,6 +127,22 @@ export class OrdersService {
             ...sameCompanyOrOwn
           ];
         }
+      }
+    }
+
+    // Server-side date filtering with Asia/Tashkent timezone
+    if (startDate || endDate) {
+      const createdAtFilter: any = {};
+      if (startDate) {
+        const start = getTashkentStartOfDay(startDate);
+        if (start) createdAtFilter.gte = start;
+      }
+      if (endDate) {
+        const end = getTashkentStartOfNextDay(endDate);
+        if (end) createdAtFilter.lt = end;
+      }
+      if (createdAtFilter.gte || createdAtFilter.lt) {
+        whereClause.createdAt = createdAtFilter;
       }
     }
 
@@ -326,8 +343,12 @@ export class OrdersService {
 
     // Pre-check stock & compute SKU allocations for all items before the transaction
     const itemAllocations = new Map<string, SkuAllocation[]>(); // productId -> allocations
+    const itemAllocationsByIndex = new Map<number, SkuAllocation[]>(); // item index -> allocations
     if (orderStatus === 'NEW') {
-      for (const vi of promoResult.items) {
+      const stockTracker = new Map<string, number>(); // physical SKU id -> packs already allocated in this order
+
+      for (let itemIdx = 0; itemIdx < promoResult.items.length; itemIdx++) {
+        const vi = promoResult.items[itemIdx];
         const qty = vi.totalQuantityPacks;
         if (typeof qty !== 'number' || isNaN(qty)) {
           throw new Error(`Invalid quantity for product ${vi.productId}`);
@@ -336,18 +357,39 @@ export class OrdersService {
         const product = productMap.get(vi.productId);
 
         if (!vi.isBonus && rawItem?.groupSkus && rawItem.groupSkus.length > 0) {
-          // Multi-SKU group ordered by customer: allocate across SKUs by priority
-          const allocs = ProductGroupService.allocatePacks(rawItem.groupSkus, qty);
+          // Multi-SKU group ordered by customer: allocate across SKUs by priority with available stock
+          const availableGroupSkus = rawItem.groupSkus.map(s => {
+            const alreadyAllocated = stockTracker.get(s.id) || 0;
+            const availableStock = Math.max(0, s.stockPacks - alreadyAllocated);
+            return {
+              ...s,
+              stockPacks: availableStock
+            };
+          });
+
+          const allocs = ProductGroupService.allocatePacks(availableGroupSkus, qty);
           itemAllocations.set(vi.productId, allocs);
+          itemAllocationsByIndex.set(itemIdx, allocs);
+
+          // Update stock tracker with allocated packs
+          for (const a of allocs) {
+            stockTracker.set(a.productId, (stockTracker.get(a.productId) || 0) + a.packs);
+          }
         } else {
           // Single SKU or dedicated promotion bonus SKU: allocate strictly to this SKU
-          if (product && qty > product.stockPacks) {
+          const alreadyAllocated = stockTracker.get(vi.productId) || 0;
+          const availableStock = product ? Math.max(0, product.stockPacks - alreadyAllocated) : 0;
+
+          if (product && qty > availableStock) {
             const prefix = vi.isBonus ? 'Превышен доступный лимит запасов для бонусной позиции:' : 'Превышен доступный лимит запасов для позиции:';
             throw new Error(`${prefix} ${product.name}. Пожалуйста, уменьшите объем заказа или выберите другую позицию.`);
           }
-          itemAllocations.set(vi.productId, [
+          const allocs = [
             { productId: vi.productId, sku: vi.sku, name: vi.name, packs: qty }
-          ]);
+          ];
+          itemAllocations.set(vi.productId, allocs);
+          itemAllocationsByIndex.set(itemIdx, allocs);
+          stockTracker.set(vi.productId, alreadyAllocated + qty);
         }
       }
     }
@@ -410,7 +452,7 @@ export class OrdersService {
         const stockStart = performance.now();
         // Consolidate stock decrements per unique SKU to minimize queries and prevent race conditions
         const stockDecrements = new Map<string, number>();
-        for (const [, allocs] of itemAllocations) {
+        for (const allocs of itemAllocationsByIndex.values()) {
           for (const alloc of allocs) {
             stockDecrements.set(alloc.productId, (stockDecrements.get(alloc.productId) || 0) + alloc.packs);
           }
@@ -510,8 +552,9 @@ export class OrdersService {
       if (orderStatus === 'NEW') {
         const skuStart = performance.now();
         const allSkuRows: any[] = [];
-        for (const item of order.items) {
-          const allocs = itemAllocations.get(item.productId);
+        for (let i = 0; i < order.items.length; i++) {
+          const item = order.items[i];
+          const allocs = itemAllocationsByIndex.get(i) || itemAllocations.get(item.productId);
           if (allocs && allocs.length > 0) {
             for (const a of allocs) {
               allSkuRows.push({
@@ -823,6 +866,7 @@ export class OrdersService {
 
     // Compute SKU allocations for updateOrder
     const itemAllocations = new Map<string, SkuAllocation[]>();
+    const itemAllocationsByIndex = new Map<number, SkuAllocation[]>();
     if (orderStatus === 'NEW') {
       const tempStockMap = new Map<string, number>();
       for (const p of dbProducts) tempStockMap.set(p.id, p.stockPacks);
@@ -832,7 +876,8 @@ export class OrdersService {
         }
       }
 
-      for (const vi of processedItems) {
+      for (let itemIdx = 0; itemIdx < processedItems.length; itemIdx++) {
+        const vi = processedItems[itemIdx];
         const qty = vi.totalQuantityPacks ?? vi.quantityPacks;
         const product = productMap.get(vi.productId);
         const rawItem = rawItems.find(r => r.productId === vi.productId);
@@ -845,6 +890,11 @@ export class OrdersService {
           }));
           const allocs = ProductGroupService.allocatePacks(adjustedSkus, qty);
           itemAllocations.set(vi.productId, allocs);
+          itemAllocationsByIndex.set(itemIdx, allocs);
+          for (const a of allocs) {
+            const cur = tempStockMap.get(a.productId) ?? 0;
+            tempStockMap.set(a.productId, Math.max(0, cur - a.packs));
+          }
         } else {
           const available = tempStockMap.get(vi.productId) ?? 0;
           if (qty > available) {
@@ -852,9 +902,12 @@ export class OrdersService {
             const prefix = vi.isBonus ? 'Превышен доступный лимит запасов для бонусной позиции:' : 'Превышен доступный лимит запасов для позиции:';
             throw new Error(`${prefix} ${name}. Пожалуйста, уменьшите объем заказа или выберите другую позицию.`);
           }
-          itemAllocations.set(vi.productId, [
+          const allocs = [
             { productId: vi.productId, sku: vi.sku, name: vi.name, packs: qty }
-          ]);
+          ];
+          itemAllocations.set(vi.productId, allocs);
+          itemAllocationsByIndex.set(itemIdx, allocs);
+          tempStockMap.set(vi.productId, Math.max(0, available - qty));
         }
       }
     }
@@ -925,7 +978,7 @@ export class OrdersService {
         const stockStart = performance.now();
         // Consolidate new stock decrements per unique SKU
         const stockDecrements = new Map<string, number>();
-        for (const [, allocs] of itemAllocations) {
+        for (const allocs of itemAllocationsByIndex.values()) {
           for (const alloc of allocs) {
             stockDecrements.set(alloc.productId, (stockDecrements.get(alloc.productId) || 0) + alloc.packs);
           }
@@ -1033,8 +1086,9 @@ export class OrdersService {
       if (orderStatus === 'NEW') {
         const skuStart = performance.now();
         const allSkuRows: any[] = [];
-        for (const item of order.items) {
-          const allocs = itemAllocations.get(item.productId);
+        for (let i = 0; i < order.items.length; i++) {
+          const item = order.items[i];
+          const allocs = itemAllocationsByIndex.get(i) || itemAllocations.get(item.productId);
           if (allocs && allocs.length > 0) {
             for (const a of allocs) {
               allSkuRows.push({
@@ -1273,6 +1327,157 @@ export class OrdersService {
       success: true,
       order: acceptedOrder,
       message: `Заказ ${order.orderNumber} успешно принят.`
+    };
+  }
+
+  /**
+   * DELETE: Deletes an order with safe stock and promotion reversal, file cleanup, and audit logging.
+   * Only allowed for users with orders:delete (SUPERADMIN, ADMIN).
+   * Status restrictions:
+   * - DRAFT: allowed (no stock to revert)
+   * - NEW / ACCEPTED / ASSEMBLY: allowed, but reverts stock to Product.stockPacks via OrderItemSku and restores promotion budgets
+   * - CANCELLED: allowed (stock was already reverted upon cancellation)
+   * - SHIPPED / COMPLETED: forbidden (returns 409 Conflict)
+   */
+  static async deleteOrder(
+    session: JWTPayload,
+    orderId: string,
+    options: { reason?: string } = {},
+    req?: NextRequest
+  ): Promise<{ success: boolean; message: string }> {
+    if (!hasPermission(session, 'orders:delete')) {
+      const err: any = new Error('У вас нет прав на удаление заказов (требуется orders:delete).');
+      err.status = 403;
+      throw err;
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            skuAllocations: true
+          }
+        },
+        documents: true
+      }
+    });
+
+    if (!order) {
+      const err: any = new Error('Заказ не найден.');
+      err.status = 404;
+      throw err;
+    }
+
+    if (order.status === 'SHIPPED' || order.status === 'COMPLETED') {
+      const err: any = new Error(`Нельзя удалить заказ в статусе "${order.status}". Удаление исполненных заказов запрещено.`);
+      err.status = 409;
+      throw err;
+    }
+
+    const shouldRevertStock = ['NEW', 'ACCEPTED', 'ASSEMBLY'].includes(order.status);
+
+    await prisma.$transaction(async (tx) => {
+      if (shouldRevertStock) {
+        // Prefer restoring stock from granular OrderItemSku records
+        const oldItemSkus = await tx.orderItemSku.findMany({
+          where: { orderItem: { orderId } }
+        });
+
+        if (oldItemSkus.length > 0) {
+          for (const sku of oldItemSkus) {
+            await tx.product.update({
+              where: { id: sku.productId },
+              data: { stockPacks: { increment: sku.packs } }
+            });
+          }
+        } else {
+          // Fallback for legacy orders without OrderItemSku
+          for (const item of order.items) {
+            const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
+            if (typeof qty === 'number' && !isNaN(qty) && qty > 0) {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { stockPacks: { increment: qty } }
+              });
+            }
+          }
+        }
+
+        // Restore consumable fixed amount budgets if any fixed-amount promotions were applied
+        const promoIds = Array.from(new Set(order.items.map(i => i.promotionId).filter(Boolean)));
+        if (promoIds.length > 0) {
+          const fixedPromos = await tx.promotion.findMany({
+            where: { id: { in: promoIds as string[] }, type: 'ORDER_FIXED_AMOUNT' }
+          });
+          for (const promo of fixedPromos) {
+            const promoDiscount = order.items
+              .filter(i => i.promotionId === promo.id)
+              .reduce((sum, i) => sum + (i.promotionDiscount || 0), 0);
+            if (promoDiscount > 0) {
+              await tx.promotion.update({
+                where: { id: promo.id },
+                data: {
+                  remainingAmount: { increment: promoDiscount },
+                  consumedAmount: { decrement: promoDiscount }
+                }
+              });
+            }
+          }
+        }
+      }
+
+      // Safely record in AuditLog within transaction
+      let auditUserId: string | null = null;
+      if (session.userId) {
+        const u = await tx.user.findUnique({ where: { id: session.userId }, select: { id: true } });
+        if (u) auditUserId = u.id;
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId: auditUserId,
+          action: 'DELETE_ORDER',
+          details: JSON.stringify({
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            deletedBy: session.name || session.email || session.userId,
+            deletedByUserId: session.userId,
+            previousStatus: order.status,
+            totalPacks: order.totalPacks,
+            totalPrice: order.totalPrice,
+            itemCount: order.items.length,
+            reason: options.reason || 'Удаление заказа администратором',
+            stockReverted: shouldRevertStock
+          }),
+          oldValue: order.status,
+          newValue: 'DELETED'
+        }
+      });
+
+      // Delete Order (Prisma cascade deletes items, itemSkus, comments, documents)
+      await tx.order.delete({
+        where: { id: orderId }
+      });
+    });
+
+    // Cleanup physical storage files
+    try {
+      if (order.fileId) {
+        await storageService.deleteFile(order.fileId).catch(() => {});
+      }
+      for (const doc of order.documents) {
+        if (doc.fileId) {
+          await storageService.deleteFile(doc.fileId).catch(() => {});
+        }
+      }
+    } catch (storageErr) {
+      console.warn('[Delete Order] Could not delete some physical files:', storageErr);
+    }
+
+    return {
+      success: true,
+      message: `Заказ ${order.orderNumber} успешно удален.`
     };
   }
 

@@ -103,11 +103,18 @@ export function localizeError(rawError: string | undefined | null, lang: Languag
     return translate(lang, codeMap[trimmed]);
   }
 
-  // 2. Bonus stock error message extraction: "Превышен доступный лимит запасов для позиции: X" or "бонусной позиции: X"
-  const bonusMatch = trimmed.match(/лимит запасов для (?:бонусной )?позиции:\s*([^\.]+)/i);
+  // 2. Bonus stock error message extraction: "Превышен доступный лимит запасов для бонусной позиции: X"
+  const bonusMatch = trimmed.match(/лимит запасов для бонусной позиции:\s*([^\.]+)/i);
   if (bonusMatch && bonusMatch[1]) {
     const productName = bonusMatch[1].trim();
     return translate(lang, 'errors.bonusStockInsufficient', { productName });
+  }
+
+  // 3. Regular stock error message extraction: "Превышен доступный лимит запасов для позиции: X"
+  const stockMatch = trimmed.match(/лимит запасов для позиции:\s*([^\.]+)/i);
+  if (stockMatch && stockMatch[1]) {
+    const productName = stockMatch[1].trim();
+    return translate(lang, 'errors.stockInsufficient', { productName });
   }
 
   // 3. Known common Russian error messages mapping

@@ -374,6 +374,7 @@ export const ru: Dictionary = {
   errors: {
     customerNotFound: 'Клиент не найден.',
     insufficientStock: 'Недостаточно остатка на складе.',
+    stockInsufficient: 'Недостаточно остатка для позиции: {productName}.',
     bonusStockInsufficient: 'Недостаточно остатка бонусной позиции: {productName}.',
     invalidOrder: 'Некорректные данные заказа.',
     promotionNotAvailable: 'Выбранная промоакция более недоступна.',

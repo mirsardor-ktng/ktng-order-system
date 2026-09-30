@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { 
   Briefcase, Download, Filter, Search, UserCheck, AlertCircle, 
   Loader2, DollarSign, Package, Layers, TrendingUp, ShoppingBag, Eye, MessageSquare, 
-  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2
+  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2, Calendar
 } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
+import { getTashkentTodayString, getTashkentWeekAgoString } from '@/lib/date-utils';
 import { useTranslation } from '@/i18n/context';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
 
@@ -126,7 +127,10 @@ export default function SellerDashboard() {
   // Filtering states for Orders
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [timeFilter, setTimeFilter] = useState<string>('ALL');
+  const [timeFilter, setTimeFilter] = useState<'ALL' | 'TODAY' | 'WEEK' | 'CUSTOM'>('ALL');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [appliedCustomDates, setAppliedCustomDates] = useState<{ start: string; end: string } | null>(null);
 
   // Search state for Products
   const [productSearch, setProductSearch] = useState('');
@@ -144,9 +148,11 @@ export default function SellerDashboard() {
   const [selectedAddProductId, setSelectedAddProductId] = useState('');
   const [generatingRequestId, setGeneratingRequestId] = useState<string | null>(null);
   const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
 
   const canViewValidation = isSuperadmin || permissions.includes('orders:validation:view') || permissions.includes('*');
   const canAcceptOrder = isSuperadmin || permissions.includes('orders:validation:accept') || permissions.includes('*');
+  const canDeleteOrder = isSuperadmin || permissions.includes('orders:delete') || permissions.includes('*');
   const canEditOrders = isSuperadmin || permissions.includes('orders:edit') || permissions.includes('orders:create');
   const canChangeStatus = isSuperadmin || permissions.includes('orders:status_change');
   const canUpdateStock = isSuperadmin || permissions.includes('products:stock_update') || permissions.includes('products:manage');
@@ -284,9 +290,69 @@ export default function SellerDashboard() {
     }
   };
 
-  const loadAllOrders = async () => {
+  const handleDeleteOrder = async (order: Order) => {
+    if (order.status === 'SHIPPED' || order.status === 'COMPLETED') {
+      showToast('Нельзя удалить заказ в статусе ' + order.status + '. Удаление исполненных заказов запрещено.', 'error');
+      return;
+    }
+
+    const confirmed = window.confirm('Удалить заказ?\n\nЭто действие нельзя отменить.');
+    if (!confirmed) return;
+
+    setDeletingOrderId(order.id);
     try {
-      const res = await fetch('/api/orders');
+      const res = await fetch(`/api/orders/${order.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Удаление через панель управления' })
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (res.status === 401 && data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+          router.push('/login?reason=session_expired');
+          return;
+        }
+        throw new Error(data.error || 'Ошибка удаления заказа');
+      }
+
+      showToast(data.message || `Заказ ${order.orderNumber} успешно удален`, 'success');
+      setOrders(prev => prev.filter(o => o.id !== order.id));
+    } catch (err: any) {
+      console.error('Error deleting order:', err);
+      showToast(err.message || 'Ошибка сети при удалении заказа', 'error');
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
+  const loadAllOrders = async (overrideStart?: string, overrideEnd?: string) => {
+    try {
+      setLoading(true);
+      let start = overrideStart;
+      let end = overrideEnd;
+
+      if (start === undefined && end === undefined) {
+        if (timeFilter === 'TODAY') {
+          start = getTashkentTodayString();
+          end = getTashkentTodayString();
+        } else if (timeFilter === 'WEEK') {
+          start = getTashkentWeekAgoString();
+          end = getTashkentTodayString();
+        } else if (timeFilter === 'CUSTOM' && appliedCustomDates) {
+          start = appliedCustomDates.start;
+          end = appliedCustomDates.end;
+        }
+      }
+
+      const params = new URLSearchParams();
+      if (start) params.set('startDate', start);
+      if (end) params.set('endDate', end);
+
+      const qs = params.toString();
+      const url = qs ? `/api/orders?${qs}` : '/api/orders';
+
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setOrders(data);
@@ -301,6 +367,18 @@ export default function SellerDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleApplyCustomDates = () => {
+    if (!customStartDate || !customEndDate) {
+      showToast('Пожалуйста, выберите обе даты периода (От и До)', 'error');
+      return;
+    }
+    if (customStartDate > customEndDate) {
+      showToast('Дата "От" не может быть позже даты "До"', 'error');
+      return;
+    }
+    setAppliedCustomDates({ start: customStartDate, end: customEndDate });
   };
 
   const loadProducts = async () => {
@@ -341,6 +419,14 @@ export default function SellerDashboard() {
     loadAllOrders();
     loadProducts();
   }, []);
+
+  useEffect(() => {
+    if (timeFilter !== 'CUSTOM') {
+      loadAllOrders();
+    } else if (appliedCustomDates) {
+      loadAllOrders(appliedCustomDates.start, appliedCustomDates.end);
+    }
+  }, [timeFilter, appliedCustomDates]);
 
   useEffect(() => {
     if (activeTab === 'products') {
@@ -547,7 +633,7 @@ export default function SellerDashboard() {
     return { totalPacks, totalBlocks, totalCases, totalPrice };
   }, [orderEditItems]);
 
-  // Filtered orders list
+  // Filtered orders list (date filtering is performed server-side)
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const matchSearch = order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -556,22 +642,9 @@ export default function SellerDashboard() {
       
       const matchStatus = statusFilter === 'ALL' || order.status === statusFilter;
 
-      let matchTime = true;
-      if (timeFilter !== 'ALL') {
-        const orderDate = new Date(order.createdAt);
-        const now = new Date();
-        if (timeFilter === 'TODAY') {
-          matchTime = orderDate.toDateString() === now.toDateString();
-        } else if (timeFilter === 'WEEK') {
-          const oneWeekAgo = new Date();
-          oneWeekAgo.setDate(now.getDate() - 7);
-          matchTime = orderDate >= oneWeekAgo;
-        }
-      }
-
-      return matchSearch && matchStatus && matchTime;
+      return matchSearch && matchStatus;
     });
-  }, [orders, searchTerm, statusFilter, timeFilter]);
+  }, [orders, searchTerm, statusFilter]);
 
   // Filtered products list
   const filteredProducts = useMemo(() => {
@@ -748,7 +821,7 @@ export default function SellerDashboard() {
 
               <div className="flex items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0">
                 <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5">{t('seller.period')}:</span>
-                {['ALL', 'TODAY', 'WEEK'].map(time => (
+                {(['ALL', 'TODAY', 'WEEK', 'CUSTOM'] as const).map(time => (
                   <button
                     key={time}
                     onClick={() => setTimeFilter(time)}
@@ -758,10 +831,47 @@ export default function SellerDashboard() {
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    {time === 'ALL' ? t('common.all') : time === 'TODAY' ? t('seller.today') : t('seller.week')}
+                    {time === 'ALL' ? t('common.all') : time === 'TODAY' ? t('seller.today') : time === 'WEEK' ? t('seller.week') : (language === 'uz' ? 'Davr' : language === 'en' ? 'Period' : 'Период')}
                   </button>
                 ))}
               </div>
+
+              {timeFilter === 'CUSTOM' && (
+                <div className="flex items-center gap-2 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0 text-xs">
+                  <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Dan:' : language === 'en' ? 'From:' : 'От:'}</span>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomStartDate(val);
+                      if (val && customEndDate && val <= customEndDate) {
+                        setAppliedCustomDates({ start: val, end: customEndDate });
+                      }
+                    }}
+                    className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
+                  />
+                  <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Gacha:' : language === 'en' ? 'To:' : 'До:'}</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomEndDate(val);
+                      if (customStartDate && val && customStartDate <= val) {
+                        setAppliedCustomDates({ start: customStartDate, end: val });
+                      }
+                    }}
+                    className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
+                  />
+                  <button
+                    onClick={handleApplyCustomDates}
+                    className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-glass-sm"
+                  >
+                    {t('common.apply')}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -952,6 +1062,23 @@ export default function SellerDashboard() {
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                               )}
                               <span>{acceptingOrderId === order.id ? t('seller.acceptingOrder') : t('seller.acceptOrder')}</span>
+                            </button>
+                          )}
+
+                          {/* Delete button if authorized */}
+                          {canDeleteOrder && order.status !== 'SHIPPED' && order.status !== 'COMPLETED' && (
+                            <button
+                              onClick={() => handleDeleteOrder(order)}
+                              disabled={deletingOrderId === order.id}
+                              className="px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                              title="Удалить заказ"
+                            >
+                              {deletingOrderId === order.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                              <span>{deletingOrderId === order.id ? 'Удаление...' : 'Удалить'}</span>
                             </button>
                           )}
 

@@ -303,6 +303,7 @@ export interface ProfileTranslations {
 export interface ErrorsTranslations {
   customerNotFound: string;
   insufficientStock: string;
+  stockInsufficient: string;
   bonusStockInsufficient: string;
   invalidOrder: string;
   promotionNotAvailable: string;
