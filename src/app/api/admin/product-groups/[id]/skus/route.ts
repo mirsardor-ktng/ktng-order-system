@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 
 /**
  * POST /api/admin/product-groups/[id]/skus
@@ -8,8 +8,12 @@ import { getSession } from '@/lib/auth';
  * Assigns a product (SKU) to this group.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
+  try {
+    await requirePermissionAsync(req, 'product_groups:manage');
+  } catch (err: any) {
+    if (err instanceof SessionExpiredError || err.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: err.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 });
   }
 
@@ -39,8 +43,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
  * Updates priority of a SKU within this group.
  */
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
+  try {
+    await requirePermissionAsync(req, 'product_groups:manage');
+  } catch (err: any) {
+    if (err instanceof SessionExpiredError || err.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: err.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 });
   }
 
@@ -66,8 +74,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
  * Removes a SKU from this group (sets groupId = null).
  */
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
+  try {
+    await requirePermissionAsync(req, 'product_groups:manage');
+  } catch (err: any) {
+    if (err instanceof SessionExpiredError || err.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: err.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 });
   }
 

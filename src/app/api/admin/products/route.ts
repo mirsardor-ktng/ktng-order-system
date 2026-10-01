@@ -45,16 +45,18 @@ export async function PUT(req: NextRequest) {
 
     let isFullManager = hasPermission(session, 'products:manage');
     let isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
+    let canManageTags = isFullManager || hasPermission(session, 'tags:manage');
 
     // Live DB permissions fallback in case JWT cookie has not yet been refreshed
-    if (!isFullManager && !isStockOnly) {
+    if (!isFullManager && !isStockOnly && !canManageTags) {
       const effective = await getEffectivePermissions(session.userId);
       session = { ...session, permissions: effective.permissions, roleName: effective.roleName, role: effective.role || session.role };
       isFullManager = hasPermission(session, 'products:manage');
       isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
+      canManageTags = isFullManager || hasPermission(session, 'tags:manage');
     }
 
-    if (!isFullManager && !isStockOnly) {
+    if (!isFullManager && !isStockOnly && !canManageTags) {
       return NextResponse.json({ error: 'У вас недостаточно прав для изменения товаров.' }, { status: 403 });
     }
 
@@ -68,6 +70,13 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    // If tag management only, ensure only tags are modified
+    if (!isFullManager && canManageTags && !isStockOnly) {
+      if (basePrice !== undefined || isFavorite !== undefined || isActive !== undefined || name !== undefined || sku !== undefined || imageUrl !== undefined || stockPacks !== undefined) {
+        return NextResponse.json({ error: 'У вашей роли есть права только на управление тегами.' }, { status: 403 });
+      }
+    }
+
     if (!id && (!ids || !Array.isArray(ids))) {
       return NextResponse.json({ error: 'Не указаны идентификаторы товаров (id или ids)' }, { status: 400 });
     }
@@ -78,13 +87,29 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'Список ids пуст.' }, { status: 400 });
       }
 
+      if (tagIds !== undefined && Array.isArray(tagIds) && (isFullManager || canManageTags)) {
+        if (tagIds.length > 0) {
+          const existingTags = await prisma.tag.findMany({
+            where: { id: { in: tagIds } },
+            select: { id: true }
+          });
+          const existingSet = new Set(existingTags.map(t => t.id));
+          const missingTags = tagIds.filter(id => !existingSet.has(id));
+          if (missingTags.length > 0) {
+            return NextResponse.json({
+              error: `Указанные теги не найдены: ${missingTags.join(', ')}`
+            }, { status: 400 });
+          }
+        }
+      }
+
       await prisma.$transaction(async (tx) => {
         // Update common simple fields
         const updateData: any = {};
         if (basePrice !== undefined && isFullManager) updateData.basePrice = parseFloat(basePrice);
         if (isFavorite !== undefined && isFullManager) updateData.isFavorite = !!isFavorite;
         if (isActive !== undefined && isFullManager) updateData.isActive = !!isActive;
-        if (stockPacks !== undefined) updateData.stockPacks = parseInt(stockPacks);
+        if (stockPacks !== undefined && (isFullManager || isStockOnly)) updateData.stockPacks = parseInt(stockPacks);
 
         if (Object.keys(updateData).length > 0) {
           await tx.product.updateMany({
@@ -93,18 +118,20 @@ export async function PUT(req: NextRequest) {
           });
         }
 
-        // Relational tag updates need to be done individually per product
-        if (tagIds !== undefined && Array.isArray(tagIds) && isFullManager) {
-          for (const pid of ids) {
-            await tx.product.update({
-              where: { id: pid },
-              data: {
-                tags: { set: tagIds.map((tid: string) => ({ id: tid })) }
-              }
-            });
-          }
+        // Relational tag updates done concurrently per product
+        if (tagIds !== undefined && Array.isArray(tagIds) && (isFullManager || canManageTags)) {
+          await Promise.all(
+            ids.map(pid =>
+              tx.product.update({
+                where: { id: pid },
+                data: {
+                  tags: { set: tagIds.map((tid: string) => ({ id: tid })) }
+                }
+              })
+            )
+          );
         }
-      });
+      }, { timeout: 30000, maxWait: 10000 });
 
       await prisma.auditLog.create({
         data: {
@@ -124,10 +151,23 @@ export async function PUT(req: NextRequest) {
     if (isActive !== undefined && isFullManager) updateData.isActive = !!isActive;
     if (name && isFullManager) updateData.name = name;
     if (sku && isFullManager) updateData.sku = sku;
-    if (stockPacks !== undefined) updateData.stockPacks = parseInt(stockPacks);
+    if (stockPacks !== undefined && (isFullManager || isStockOnly)) updateData.stockPacks = parseInt(stockPacks);
 
     // Handle tag re-assignment
-    if (tagIds !== undefined && Array.isArray(tagIds) && isFullManager) {
+    if (tagIds !== undefined && Array.isArray(tagIds) && (isFullManager || canManageTags)) {
+      if (tagIds.length > 0) {
+        const existingTags = await prisma.tag.findMany({
+          where: { id: { in: tagIds } },
+          select: { id: true }
+        });
+        const existingSet = new Set(existingTags.map(t => t.id));
+        const missingTags = tagIds.filter(id => !existingSet.has(id));
+        if (missingTags.length > 0) {
+          return NextResponse.json({
+            error: `Указанные теги не найдены: ${missingTags.join(', ')}`
+          }, { status: 400 });
+        }
+      }
       updateData.tags = { set: tagIds.map((tid: string) => ({ id: tid })) };
     }
 

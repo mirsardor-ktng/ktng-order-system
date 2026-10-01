@@ -70,6 +70,8 @@ export default function AdminOverview() {
         // Validate response is an array (not an error object)
         if (Array.isArray(ordersJson)) {
           ordersData = ordersJson;
+        } else if (ordersJson?.orders && Array.isArray(ordersJson.orders)) {
+          ordersData = ordersJson.orders;
         } else {
           console.warn('[Dashboard] /api/orders returned non-array:', ordersJson?.error || ordersJson);
         }

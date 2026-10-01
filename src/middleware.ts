@@ -69,7 +69,8 @@ async function verifyJWT(token: string, secret: string): Promise<any | null> {
 
 function hasPermission(payload: any, required: string[]): boolean {
   if (!payload) return false;
-  if (payload.role === 'ADMIN' || payload.roleName === 'Суперадминистратор') return true;
+  const isSuperAdmin = payload.roleName ? payload.roleName === 'Суперадминистратор' : payload.role === 'ADMIN';
+  if (isSuperAdmin) return true;
   const perms: string[] = payload.permissions || [];
   if (perms.includes('*')) return true;
   return required.some(r => perms.includes(r));
@@ -199,11 +200,15 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  if (pathname.startsWith('/admin/settings') || pathname.startsWith('/api/admin/gdrive') || pathname.startsWith('/api/admin/recover-files')) {
+  if (pathname.startsWith('/admin/settings') || pathname.startsWith('/api/admin/recover-files') || (pathname.startsWith('/api/admin/gdrive') && req.method !== 'GET')) {
     if (!hasPermission(payload, ['settings:manage'])) {
       return isApiPath
         ? new NextResponse(JSON.stringify({ error: 'Доступ запрещен (требуются права на системные настройки).' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
         : new NextResponse('Доступ запрещен', { status: 403 });
+    }
+  } else if (pathname.startsWith('/api/admin/gdrive') && req.method === 'GET') {
+    if (!hasPermission(payload, ['settings:manage', 'products:manage', 'users:read', 'orders:view_all'])) {
+      return new NextResponse(JSON.stringify({ error: 'Доступ запрещен.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
     }
   }
 

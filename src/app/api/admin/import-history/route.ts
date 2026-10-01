@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
 
 export const dynamic = 'force-dynamic';
@@ -18,10 +18,7 @@ interface ExcelRowData {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ разрешен только администраторам.' }, { status: 403 });
-    }
+    const session = await requirePermissionAsync(req, 'import:execute');
 
     const formData = await req.formData();
     const file = formData.get('file') as Blob | null;
@@ -321,7 +318,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: 'Неверное действие импорта.' }, { status: 400 });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     console.error('[Import History Error]', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.message?.includes('недостаточно прав') ? 403 : 500 });
   }
 }

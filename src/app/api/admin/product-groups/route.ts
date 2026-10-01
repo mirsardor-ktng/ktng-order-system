@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || !['ADMIN', 'SELLER'].includes(session.role)) {
+  try {
+    await requirePermissionAsync(req, ['product_groups:manage', 'products:read', 'products:manage']);
+  } catch (err: any) {
+    if (err instanceof SessionExpiredError || err.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: err.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 });
   }
 
@@ -28,8 +32,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
+  try {
+    await requirePermissionAsync(req, 'product_groups:manage');
+  } catch (err: any) {
+    if (err instanceof SessionExpiredError || err.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: err.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 });
   }
 

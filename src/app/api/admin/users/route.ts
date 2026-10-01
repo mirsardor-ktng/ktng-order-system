@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
 function getLegacyRoleFromTemplateName(templateName?: string | null): 'ADMIN' | 'SELLER' | 'MANAGER' | 'CUSTOMER' {
   switch (templateName) {
     case 'Суперадминистратор':
+    case 'Администратор':
       return 'ADMIN';
     case 'Менеджер продаж':
       return 'SELLER';

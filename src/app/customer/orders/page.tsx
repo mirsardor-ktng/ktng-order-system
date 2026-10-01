@@ -144,7 +144,7 @@ function CustomerOrdersContent() {
       const res = await fetch('/api/orders');
       if (res.ok) {
         const data = await res.json();
-        setOrders(data);
+        setOrders(Array.isArray(data) ? data : (data.orders || []));
       } else if (res.status === 401) {
         const data = await res.json().catch(() => ({}));
         if (data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {

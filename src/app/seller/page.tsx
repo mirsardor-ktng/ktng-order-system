@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { 
   Briefcase, Download, Filter, Search, UserCheck, AlertCircle, 
   Loader2, DollarSign, Package, Layers, TrendingUp, ShoppingBag, Eye, MessageSquare, 
-  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2, Calendar
+  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2, Calendar, XCircle
 } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
 import { getTashkentTodayString, getTashkentWeekAgoString } from '@/lib/date-utils';
@@ -148,13 +148,19 @@ export default function SellerDashboard() {
   const [selectedAddProductId, setSelectedAddProductId] = useState('');
   const [generatingRequestId, setGeneratingRequestId] = useState<string | null>(null);
   const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
-  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [totalOrders, setTotalOrders] = useState<number>(0);
+  const [totalPages, setTotalPages] = useState<number>(1);
 
   const canViewValidation = isSuperadmin || permissions.includes('orders:validation:view') || permissions.includes('*');
   const canAcceptOrder = isSuperadmin || permissions.includes('orders:validation:accept') || permissions.includes('*');
-  const canDeleteOrder = isSuperadmin || permissions.includes('orders:delete') || permissions.includes('*');
-  const canEditOrders = isSuperadmin || permissions.includes('orders:edit') || permissions.includes('orders:create');
   const canChangeStatus = isSuperadmin || permissions.includes('orders:status_change');
+  const canCancelOrder = canChangeStatus;
+  const canEditOrders = isSuperadmin || permissions.includes('orders:edit') || permissions.includes('orders:create');
   const canUpdateStock = isSuperadmin || permissions.includes('products:stock_update') || permissions.includes('products:manage');
   const canExportExcel = isSuperadmin || permissions.includes('orders:export');
   const canAddComments = isSuperadmin || permissions.includes('orders:comments') || permissions.length === 0;
@@ -290,21 +296,25 @@ export default function SellerDashboard() {
     }
   };
 
-  const handleDeleteOrder = async (order: Order) => {
+  const handleCancelOrder = async (order: Order) => {
     if (order.status === 'SHIPPED' || order.status === 'COMPLETED') {
-      showToast('Нельзя удалить заказ в статусе ' + order.status + '. Удаление исполненных заказов запрещено.', 'error');
+      showToast('Нельзя отменить исполненный заказ в статусе ' + order.status + '.', 'error');
+      return;
+    }
+    if (order.status === 'CANCELLED') {
+      showToast('Заказ уже отменен.', 'error');
       return;
     }
 
-    const confirmed = window.confirm('Удалить заказ?\n\nЭто действие нельзя отменить.');
-    if (!confirmed) return;
+    const reasonPrompt = window.prompt('Укажите причину отмены заказа:', 'Отмена через панель управления');
+    if (reasonPrompt === null) return;
 
-    setDeletingOrderId(order.id);
+    setCancellingOrderId(order.id);
     try {
-      const res = await fetch(`/api/orders/${order.id}`, {
-        method: 'DELETE',
+      const res = await fetch('/api/orders/status', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Удаление через панель управления' })
+        body: JSON.stringify({ orderId: order.id, status: 'CANCELLED', reason: reasonPrompt || 'Отмена через панель управления' })
       });
       const data = await res.json().catch(() => ({}));
 
@@ -313,20 +323,26 @@ export default function SellerDashboard() {
           router.push('/login?reason=session_expired');
           return;
         }
-        throw new Error(data.error || 'Ошибка удаления заказа');
+        throw new Error(data.error || 'Ошибка отмены заказа');
       }
 
-      showToast(data.message || `Заказ ${order.orderNumber} успешно удален`, 'success');
-      setOrders(prev => prev.filter(o => o.id !== order.id));
+      showToast(data.message || `Заказ ${order.orderNumber} успешно отменен`, 'success');
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'CANCELLED' } : o));
     } catch (err: any) {
-      console.error('Error deleting order:', err);
-      showToast(err.message || 'Ошибка сети при удалении заказа', 'error');
+      console.error('Error cancelling order:', err);
+      showToast(err.message || 'Ошибка сети при отмене заказа', 'error');
     } finally {
-      setDeletingOrderId(null);
+      setCancellingOrderId(null);
     }
   };
 
-  const loadAllOrders = async (overrideStart?: string, overrideEnd?: string) => {
+  const loadAllOrders = async (
+    overrideStart?: string,
+    overrideEnd?: string,
+    pageOverride?: number,
+    sizeOverride?: number,
+    statusOverride?: string
+  ) => {
     try {
       setLoading(true);
       let start = overrideStart;
@@ -345,9 +361,16 @@ export default function SellerDashboard() {
         }
       }
 
+      const activePage = pageOverride !== undefined ? pageOverride : currentPage;
+      const activeSize = sizeOverride !== undefined ? sizeOverride : pageSize;
+      const activeStatus = statusOverride !== undefined ? statusOverride : statusFilter;
+
       const params = new URLSearchParams();
       if (start) params.set('startDate', start);
       if (end) params.set('endDate', end);
+      if (activeStatus && activeStatus !== 'ALL') params.set('status', activeStatus);
+      params.set('page', String(activePage));
+      params.set('pageSize', String(activeSize));
 
       const qs = params.toString();
       const url = qs ? `/api/orders?${qs}` : '/api/orders';
@@ -355,7 +378,16 @@ export default function SellerDashboard() {
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        setOrders(data);
+        if (data && data.pagination) {
+          setOrders(data.orders || []);
+          setTotalOrders(data.pagination.total);
+          setTotalPages(data.pagination.totalPages);
+          setCurrentPage(data.pagination.page);
+        } else if (Array.isArray(data)) {
+          setOrders(data);
+          setTotalOrders(data.length);
+          setTotalPages(Math.max(1, Math.ceil(data.length / activeSize)));
+        }
       } else if (res.status === 401) {
         const data = await res.json().catch(() => ({}));
         if (data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
@@ -421,12 +453,13 @@ export default function SellerDashboard() {
   }, []);
 
   useEffect(() => {
+    setCurrentPage(1);
     if (timeFilter !== 'CUSTOM') {
-      loadAllOrders();
+      loadAllOrders(undefined, undefined, 1, pageSize, statusFilter);
     } else if (appliedCustomDates) {
-      loadAllOrders(appliedCustomDates.start, appliedCustomDates.end);
+      loadAllOrders(appliedCustomDates.start, appliedCustomDates.end, 1, pageSize, statusFilter);
     }
-  }, [timeFilter, appliedCustomDates]);
+  }, [timeFilter, appliedCustomDates, statusFilter]);
 
   useEffect(() => {
     if (activeTab === 'products') {
@@ -804,7 +837,7 @@ export default function SellerDashboard() {
             <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto xl:justify-end">
               <div className="flex items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 overflow-x-auto max-w-full">
                 <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5 whitespace-nowrap">{t('orders.status')}:</span>
-                {['ALL', 'NEW', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'].map(status => (
+                {['ALL', 'NEW', 'ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'].map(status => (
                   <button
                     key={status}
                     onClick={() => setStatusFilter(status)}
@@ -880,7 +913,7 @@ export default function SellerDashboard() {
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-200 text-base flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-cyan-400" />
-                <span>{t('seller.incomingOrdersJournal', { count: filteredOrders.length })}</span>
+                <span>{t('seller.incomingOrdersJournal', { count: totalOrders || filteredOrders.length })}</span>
               </h3>
             </div>
 
@@ -1065,20 +1098,20 @@ export default function SellerDashboard() {
                             </button>
                           )}
 
-                          {/* Delete button if authorized */}
-                          {canDeleteOrder && order.status !== 'SHIPPED' && order.status !== 'COMPLETED' && (
+                          {/* Cancel button if authorized */}
+                          {canCancelOrder && order.status !== 'SHIPPED' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
                             <button
-                              onClick={() => handleDeleteOrder(order)}
-                              disabled={deletingOrderId === order.id}
+                              onClick={() => handleCancelOrder(order)}
+                              disabled={cancellingOrderId === order.id}
                               className="px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
-                              title="Удалить заказ"
+                              title="Отменить заказ"
                             >
-                              {deletingOrderId === order.id ? (
+                              {cancellingOrderId === order.id ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <XCircle className="h-3.5 w-3.5" />
                               )}
-                              <span>{deletingOrderId === order.id ? 'Удаление...' : 'Удалить'}</span>
+                              <span>{cancellingOrderId === order.id ? 'Отмена...' : 'Отменить'}</span>
                             </button>
                           )}
 
@@ -1427,6 +1460,58 @@ export default function SellerDashboard() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {(totalPages > 1 || totalOrders > 25) && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 glass-panel rounded-2xl border border-white/5 text-xs text-slate-400">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400">Показывать по:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      const newSize = Number(e.target.value);
+                      setPageSize(newSize);
+                      setCurrentPage(1);
+                      loadAllOrders(undefined, undefined, 1, newSize, statusFilter);
+                    }}
+                    className="bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                  <span className="text-[11px] text-slate-500">из {totalOrders} заказов</span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    disabled={currentPage <= 1 || loading}
+                    onClick={() => {
+                      const p = currentPage - 1;
+                      setCurrentPage(p);
+                      loadAllOrders(undefined, undefined, p, pageSize, statusFilter);
+                    }}
+                    className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
+                  >
+                    {language === 'uz' ? 'Orqaga' : language === 'en' ? 'Previous' : 'Назад'}
+                  </button>
+                  <span className="font-bold text-slate-200 text-xs px-2">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    disabled={currentPage >= totalPages || loading}
+                    onClick={() => {
+                      const p = currentPage + 1;
+                      setCurrentPage(p);
+                      loadAllOrders(undefined, undefined, p, pageSize, statusFilter);
+                    }}
+                    className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
+                  >
+                    {language === 'uz' ? 'Oldinga' : language === 'en' ? 'Next' : 'Вперед'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

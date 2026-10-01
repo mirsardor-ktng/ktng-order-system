@@ -49,8 +49,18 @@ export class OrdersService {
   /**
    * GET: Retrieves order history with server-side visibility and date filtering.
    */
-  static async getOrders(session: JWTPayload, options: { customerId?: string; status?: string; startDate?: string; endDate?: string } = {}) {
-    const { customerId, status, startDate, endDate } = options;
+  static async getOrders(
+    session: JWTPayload,
+    options: {
+      customerId?: string;
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      page?: number | string;
+      pageSize?: number | string;
+    } = {}
+  ): Promise<any> {
+    const { customerId, status, startDate, endDate, page, pageSize } = options;
     const whereClause: any = {};
 
     const canViewAll = hasPermission(session, 'orders:view_all');
@@ -146,38 +156,69 @@ export class OrdersService {
       }
     }
 
-    return await prisma.order.findMany({
-      where: whereClause,
-      include: {
-        customer: {
-          select: { id: true, name: true, email: true }
-        },
-        createdBy: {
-          select: { id: true, name: true, email: true }
-        },
-        company: {
-          select: { id: true, name: true, code: true }
-        },
-        items: {
-          include: {
-            product: true,
-            skuAllocations: {
-              include: {
-                product: {
-                  select: { priority: true }
-                }
-              },
-              orderBy: { id: 'asc' }
-            }
+    const orderInclude = {
+      customer: {
+        select: { id: true, name: true, email: true }
+      },
+      createdBy: {
+        select: { id: true, name: true, email: true }
+      },
+      company: {
+        select: { id: true, name: true, code: true }
+      },
+      items: {
+        include: {
+          product: true,
+          skuAllocations: {
+            include: {
+              product: {
+                select: { priority: true }
+              }
+            },
+            orderBy: { id: 'asc' as const }
           }
-        },
-        comments: {
-          orderBy: { createdAt: 'asc' }
-        },
-        documents: {
-          orderBy: { createdAt: 'desc' }
         }
       },
+      comments: {
+        orderBy: { createdAt: 'asc' as const }
+      },
+      documents: {
+        orderBy: { createdAt: 'desc' as const }
+      }
+    };
+
+    const isPaginated = page !== undefined || pageSize !== undefined;
+    if (isPaginated) {
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const parsedSize = parseInt(String(pageSize), 10);
+      const limit = (parsedSize === 25 || parsedSize === 50 || parsedSize === 100) ? parsedSize : 25;
+      const skip = (pageNum - 1) * limit;
+
+      const [total, orders] = await Promise.all([
+        prisma.order.count({ where: whereClause }),
+        prisma.order.findMany({
+          where: whereClause,
+          include: orderInclude,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit
+        })
+      ]);
+
+      return {
+        orders,
+        pagination: {
+          page: pageNum,
+          pageSize: limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit))
+        }
+      };
+    }
+
+    return await prisma.order.findMany({
+      where: whereClause,
+      include: orderInclude,
       orderBy: { createdAt: 'desc' }
     });
   }
@@ -1147,87 +1188,189 @@ export class OrdersService {
   }
 
   /**
-   * PUT: Changes the status of an existing order.
+   * PUT: Changes the status of an existing order or cancels it.
    */
-  static async updateOrderStatus(session: JWTPayload, data: { orderId: string; status: string }, req?: NextRequest) {
-    const { orderId, status } = data;
+  static async updateOrderStatus(
+    session: JWTPayload,
+    data: { orderId: string; status: string; reason?: string },
+    req?: NextRequest
+  ) {
+    const { orderId, status, reason } = data;
     const VALID_STATUSES = ['NEW', 'ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'];
 
-    if (!VALID_STATUSES.includes(status)) throw new Error('Недопустимый статус заказа.');
+    if (!VALID_STATUSES.includes(status)) {
+      const err: any = new Error('Недопустимый статус заказа.');
+      err.status = 400;
+      throw err;
+    }
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { items: { include: { product: true } } }
     });
 
-    if (!order) throw new Error('Заказ не найден.');
-    if (order.status === status) return { order, message: 'Статус уже установлен.' };
+    if (!order) {
+      const err: any = new Error('Заказ не найден.');
+      err.status = 404;
+      throw err;
+    }
+
+    if (order.status === status) {
+      if (status === 'CANCELLED') {
+        const err: any = new Error('Заказ уже отменен.');
+        err.status = 409;
+        throw err;
+      }
+      return { order, message: 'Статус уже установлен.' };
+    }
 
     const oldStatus = order.status;
 
     // Lifecycle transitions validation
     // 1. CANCELLED is final terminal state
     if (oldStatus === 'CANCELLED') {
-      throw new Error('Нельзя изменить статус отмененного заказа.');
+      const err: any = new Error('Нельзя изменить статус отмененного заказа.');
+      err.status = 409;
+      throw err;
     }
-    // 2. Once ASSEMBLY or later, editing/cancelling might have locks, but can move to CANCELLED/SHIPPED/COMPLETED.
-    // However, if moving back to NEW/DRAFT from ASSEMBLY/SHIPPED/COMPLETED - wait, the spec says "После Сборка редактирование запрещено. После Отменен редактирование запрещено."
-    // Changing status is allowed (NEW -> ASSEMBLY -> SHIPPED -> COMPLETED), but CANCELLED is a terminal state.
+
+    // 2. Terminal state protection: SHIPPED or COMPLETED cannot be cancelled
+    if (status === 'CANCELLED' && (oldStatus === 'SHIPPED' || oldStatus === 'COMPLETED')) {
+      const err: any = new Error(`Нельзя отменить исполненный заказ в статусе "${oldStatus}".`);
+      err.status = 409;
+      throw err;
+    }
+
+    const shouldRevertStock = status === 'CANCELLED' && ['NEW', 'ACCEPTED', 'ASSEMBLY'].includes(oldStatus);
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
-      // If moving to CANCELLED from an active state, return stock and fixed-amount budget
-      if (status === 'CANCELLED' && oldStatus !== 'CANCELLED' && oldStatus !== 'DRAFT') {
-        // Prefer restoring from granular OrderItemSku records
-        const oldItemSkus = await tx.orderItemSku.findMany({
-          where: { orderItem: { orderId } }
+      if (status === 'CANCELLED') {
+        const allowedSourceStatuses = oldStatus === 'DRAFT' ? ['DRAFT'] : ['NEW', 'ACCEPTED', 'ASSEMBLY'];
+        const updateResult = await tx.order.updateMany({
+          where: {
+            id: orderId,
+            status: { in: allowedSourceStatuses }
+          },
+          data: {
+            status: 'CANCELLED'
+          }
         });
-        if (oldItemSkus.length > 0) {
-          for (const sku of oldItemSkus) {
-            await tx.product.update({
-              where: { id: sku.productId },
-              data: { stockPacks: { increment: sku.packs } }
-            });
+
+        if (updateResult.count === 0) {
+          const freshOrder = await tx.order.findUnique({
+            where: { id: orderId },
+            select: { id: true, status: true }
+          });
+          if (!freshOrder) {
+            const err: any = new Error('Заказ не найден.');
+            err.status = 404;
+            throw err;
           }
-        } else {
-          // Fallback for legacy orders without OrderItemSku records
-          for (const item of order.items) {
-            const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
-            if (typeof qty !== 'number' || isNaN(qty)) continue;
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stockPacks: { increment: qty } }
-            });
+          if (freshOrder.status === 'CANCELLED') {
+            const err: any = new Error('Заказ уже отменен.');
+            err.status = 409;
+            throw err;
           }
+          if (freshOrder.status === 'SHIPPED' || freshOrder.status === 'COMPLETED') {
+            const err: any = new Error(`Нельзя отменить исполненный заказ в статусе "${freshOrder.status}".`);
+            err.status = 409;
+            throw err;
+          }
+          const err: any = new Error(`Нельзя отменить заказ в статусе "${freshOrder.status}".`);
+          err.status = 400;
+          throw err;
         }
 
-        // Restore consumable fixed amount budgets if any fixed-amount promotions were applied
-        const promoIds = Array.from(new Set(order.items.map(i => i.promotionId).filter(Boolean)));
-        if (promoIds.length > 0) {
-          const fixedPromos = await tx.promotion.findMany({
-            where: { id: { in: promoIds as string[] }, type: 'ORDER_FIXED_AMOUNT' }
+        // Only the atomic winner executes stock & promotion reversal
+        if (shouldRevertStock) {
+          // Prefer restoring from granular OrderItemSku records
+          const oldItemSkus = await tx.orderItemSku.findMany({
+            where: { orderItem: { orderId } }
           });
-          for (const promo of fixedPromos) {
-            const promoDiscount = order.items
-              .filter(i => i.promotionId === promo.id)
-              .reduce((sum, i) => sum + (i.promotionDiscount || 0), 0);
-            if (promoDiscount > 0) {
-              await tx.promotion.update({
-                where: { id: promo.id },
-                data: {
-                  remainingAmount: { increment: promoDiscount },
-                  consumedAmount: { decrement: promoDiscount }
-                }
+          if (oldItemSkus.length > 0) {
+            for (const sku of oldItemSkus) {
+              await tx.product.update({
+                where: { id: sku.productId },
+                data: { stockPacks: { increment: sku.packs } }
+              });
+            }
+          } else {
+            // Fallback for legacy orders without OrderItemSku records
+            for (const item of order.items) {
+              const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
+              if (typeof qty !== 'number' || isNaN(qty) || qty <= 0) continue;
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { stockPacks: { increment: qty } }
               });
             }
           }
+
+          // Restore consumable fixed amount budgets if any fixed-amount promotions were applied
+          const promoIds = Array.from(new Set(order.items.map(i => i.promotionId).filter(Boolean)));
+          if (promoIds.length > 0) {
+            const fixedPromos = await tx.promotion.findMany({
+              where: { id: { in: promoIds as string[] }, type: 'ORDER_FIXED_AMOUNT' }
+            });
+            for (const promo of fixedPromos) {
+              const promoDiscount = order.items
+                .filter(i => i.promotionId === promo.id)
+                .reduce((sum, i) => sum + (i.promotionDiscount || 0), 0);
+              if (promoDiscount > 0) {
+                await tx.promotion.update({
+                  where: { id: promo.id },
+                  data: {
+                    remainingAmount: { increment: promoDiscount },
+                    consumedAmount: { decrement: promoDiscount }
+                  }
+                });
+              }
+            }
+          }
         }
+
+        // Record CANCEL_ORDER in AuditLog inside transaction
+        let auditUserId: string | null = null;
+        if (session.userId) {
+          const u = await tx.user.findUnique({ where: { id: session.userId }, select: { id: true } });
+          if (u) auditUserId = u.id;
+        }
+
+        await tx.auditLog.create({
+          data: {
+            userId: auditUserId,
+            action: 'CANCEL_ORDER',
+            details: JSON.stringify({
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              cancelledBy: session.name || session.email || session.userId,
+              cancelledByUserId: session.userId,
+              previousStatus: oldStatus,
+              totalPacks: order.totalPacks,
+              totalPrice: order.totalPrice,
+              itemCount: order.items.length,
+              reason: reason || 'Отмена заказа пользователем',
+              stockReverted: shouldRevertStock
+            }),
+            oldValue: oldStatus,
+            newValue: 'CANCELLED'
+          }
+        });
+
+        return await tx.order.findUniqueOrThrow({
+          where: { id: orderId },
+          include: {
+            customer: { select: { name: true, email: true } },
+            items: { include: { product: true } }
+          }
+        });
       }
 
       // If reverting from CANCELLED status (should be blocked by lifecycle validation anyway, but keeping stock safe)
       if (oldStatus === 'CANCELLED' && status !== 'CANCELLED' && status !== 'DRAFT') {
         for (const item of order.items) {
           const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
-          if (typeof qty !== 'number' || isNaN(qty)) {
+          if (typeof qty !== 'number' || isNaN(qty) || qty <= 0) {
             throw new Error(`Invalid quantity for product ${item.productId}`);
           }
           const product = await tx.product.findUnique({ where: { id: item.productId } });
@@ -1251,18 +1394,22 @@ export class OrdersService {
       });
     });
 
-    await AuditService.log({
-      userId: session.userId,
-      action: 'CHANGE_ORDER_STATUS',
-      details: `Пользователь (${session.role}) изменил статус заказа ${order.orderNumber} с ${oldStatus} на ${status}`,
-      oldValue: oldStatus,
-      newValue: status,
-      req
-    });
+    if (status !== 'CANCELLED') {
+      await AuditService.log({
+        userId: session.userId,
+        action: 'CHANGE_ORDER_STATUS',
+        details: `Пользователь (${session.role}) изменил статус заказа ${order.orderNumber} с ${oldStatus} на ${status}`,
+        oldValue: oldStatus,
+        newValue: status,
+        req
+      });
+    }
 
     return {
       order: updatedOrder,
-      message: `Статус заказа ${order.orderNumber} изменен на "${status}"`
+      message: status === 'CANCELLED'
+        ? `Заказ ${order.orderNumber} успешно отменен.`
+        : `Статус заказа ${order.orderNumber} изменен на "${status}"`
     };
   }
 
@@ -1327,157 +1474,6 @@ export class OrdersService {
       success: true,
       order: acceptedOrder,
       message: `Заказ ${order.orderNumber} успешно принят.`
-    };
-  }
-
-  /**
-   * DELETE: Deletes an order with safe stock and promotion reversal, file cleanup, and audit logging.
-   * Only allowed for users with orders:delete (SUPERADMIN, ADMIN).
-   * Status restrictions:
-   * - DRAFT: allowed (no stock to revert)
-   * - NEW / ACCEPTED / ASSEMBLY: allowed, but reverts stock to Product.stockPacks via OrderItemSku and restores promotion budgets
-   * - CANCELLED: allowed (stock was already reverted upon cancellation)
-   * - SHIPPED / COMPLETED: forbidden (returns 409 Conflict)
-   */
-  static async deleteOrder(
-    session: JWTPayload,
-    orderId: string,
-    options: { reason?: string } = {},
-    req?: NextRequest
-  ): Promise<{ success: boolean; message: string }> {
-    if (!hasPermission(session, 'orders:delete')) {
-      const err: any = new Error('У вас нет прав на удаление заказов (требуется orders:delete).');
-      err.status = 403;
-      throw err;
-    }
-
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        items: {
-          include: {
-            skuAllocations: true
-          }
-        },
-        documents: true
-      }
-    });
-
-    if (!order) {
-      const err: any = new Error('Заказ не найден.');
-      err.status = 404;
-      throw err;
-    }
-
-    if (order.status === 'SHIPPED' || order.status === 'COMPLETED') {
-      const err: any = new Error(`Нельзя удалить заказ в статусе "${order.status}". Удаление исполненных заказов запрещено.`);
-      err.status = 409;
-      throw err;
-    }
-
-    const shouldRevertStock = ['NEW', 'ACCEPTED', 'ASSEMBLY'].includes(order.status);
-
-    await prisma.$transaction(async (tx) => {
-      if (shouldRevertStock) {
-        // Prefer restoring stock from granular OrderItemSku records
-        const oldItemSkus = await tx.orderItemSku.findMany({
-          where: { orderItem: { orderId } }
-        });
-
-        if (oldItemSkus.length > 0) {
-          for (const sku of oldItemSkus) {
-            await tx.product.update({
-              where: { id: sku.productId },
-              data: { stockPacks: { increment: sku.packs } }
-            });
-          }
-        } else {
-          // Fallback for legacy orders without OrderItemSku
-          for (const item of order.items) {
-            const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
-            if (typeof qty === 'number' && !isNaN(qty) && qty > 0) {
-              await tx.product.update({
-                where: { id: item.productId },
-                data: { stockPacks: { increment: qty } }
-              });
-            }
-          }
-        }
-
-        // Restore consumable fixed amount budgets if any fixed-amount promotions were applied
-        const promoIds = Array.from(new Set(order.items.map(i => i.promotionId).filter(Boolean)));
-        if (promoIds.length > 0) {
-          const fixedPromos = await tx.promotion.findMany({
-            where: { id: { in: promoIds as string[] }, type: 'ORDER_FIXED_AMOUNT' }
-          });
-          for (const promo of fixedPromos) {
-            const promoDiscount = order.items
-              .filter(i => i.promotionId === promo.id)
-              .reduce((sum, i) => sum + (i.promotionDiscount || 0), 0);
-            if (promoDiscount > 0) {
-              await tx.promotion.update({
-                where: { id: promo.id },
-                data: {
-                  remainingAmount: { increment: promoDiscount },
-                  consumedAmount: { decrement: promoDiscount }
-                }
-              });
-            }
-          }
-        }
-      }
-
-      // Safely record in AuditLog within transaction
-      let auditUserId: string | null = null;
-      if (session.userId) {
-        const u = await tx.user.findUnique({ where: { id: session.userId }, select: { id: true } });
-        if (u) auditUserId = u.id;
-      }
-
-      await tx.auditLog.create({
-        data: {
-          userId: auditUserId,
-          action: 'DELETE_ORDER',
-          details: JSON.stringify({
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            deletedBy: session.name || session.email || session.userId,
-            deletedByUserId: session.userId,
-            previousStatus: order.status,
-            totalPacks: order.totalPacks,
-            totalPrice: order.totalPrice,
-            itemCount: order.items.length,
-            reason: options.reason || 'Удаление заказа администратором',
-            stockReverted: shouldRevertStock
-          }),
-          oldValue: order.status,
-          newValue: 'DELETED'
-        }
-      });
-
-      // Delete Order (Prisma cascade deletes items, itemSkus, comments, documents)
-      await tx.order.delete({
-        where: { id: orderId }
-      });
-    });
-
-    // Cleanup physical storage files
-    try {
-      if (order.fileId) {
-        await storageService.deleteFile(order.fileId).catch(() => {});
-      }
-      for (const doc of order.documents) {
-        if (doc.fileId) {
-          await storageService.deleteFile(doc.fileId).catch(() => {});
-        }
-      }
-    } catch (storageErr) {
-      console.warn('[Delete Order] Could not delete some physical files:', storageErr);
-    }
-
-    return {
-      success: true,
-      message: `Заказ ${order.orderNumber} успешно удален.`
     };
   }
 

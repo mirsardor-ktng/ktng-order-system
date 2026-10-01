@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 
 async function requireAdmin(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
-    throw new Error('Access denied');
-  }
-  return session;
+  return await requirePermissionAsync(req, 'placeholders:manage');
 }
 
 /**

@@ -49,7 +49,8 @@ export async function GET(req: NextRequest) {
     let roleName = dbUser.roleTemplate?.name || session.roleName || dbUser.role || 'Пользователь';
     let defaultDashboard = dbUser.roleTemplate?.defaultDashboard || session.defaultDashboard || '/customer';
 
-    if (dbUser.role === 'ADMIN' || roleName === 'Суперадминистратор') {
+    const isSuperAdmin = dbUser.roleTemplate ? dbUser.roleTemplate.name === 'Суперадминистратор' : dbUser.role === 'ADMIN';
+    if (isSuperAdmin) {
       permissions = ALL_PERMISSIONS;
       defaultDashboard = defaultDashboard || '/admin';
     }

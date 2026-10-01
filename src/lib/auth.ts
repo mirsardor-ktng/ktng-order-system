@@ -58,8 +58,9 @@ import { ALL_PERMISSIONS } from './permissions';
 export function hasPermission(payload: JWTPayload | null, required: string | string[]): boolean {
   if (!payload) return false;
 
-  // Superadmin bypass
-  if (payload.role === 'ADMIN' || payload.roleName === 'Суперадминистратор') {
+  // Superadmin bypass: only Суперадминистратор or legacy ADMIN without custom template
+  const isSuperAdmin = payload.roleName ? payload.roleName === 'Суперадминистратор' : payload.role === 'ADMIN';
+  if (isSuperAdmin) {
     return true;
   }
 

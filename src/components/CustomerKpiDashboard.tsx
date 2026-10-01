@@ -60,8 +60,8 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
 
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json();
-          if (isMounted && Array.isArray(ordersData)) {
-            setOrders(ordersData);
+          if (isMounted) {
+            setOrders(Array.isArray(ordersData) ? ordersData : (ordersData?.orders || []));
           }
         }
       } catch (err) {

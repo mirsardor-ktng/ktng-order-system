@@ -1,24 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 import { uploadFile, downloadFile } from '@/lib/gdrive';
 import { encrypt, decrypt } from '@/lib/security';
-
-async function requireAdmin(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
-    throw new Error('Access denied');
-  }
-  return session;
-}
 
 /**
  * GET: Retrieves the current Google Drive connection details, sync status, and backup metrics.
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireAdmin(req);
+    await requirePermissionAsync(req, ['settings:manage', 'products:manage', 'users:read', 'orders:view_all']);
     
     // Fetch relevant settings
     const settings = await prisma.systemSetting.findMany({});
@@ -43,6 +35,9 @@ export async function GET(req: NextRequest) {
       }
     });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
     return NextResponse.json({ error: error.message }, { status: 403 });
   }
 }
@@ -52,7 +47,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const adminSession = await requireAdmin(req);
+    const adminSession = await requirePermissionAsync(req, 'settings:manage');
     const body = await req.json();
     const { action, syncEnabled, folderId, encryptionKey } = body;
 
@@ -173,7 +168,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: 'Неизвестное действие' }, { status: 400 });
   } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
+    const isPermissionError = error.message?.includes('недостаточно прав') || error.message?.includes('авторизация') || error.message?.includes('Access denied');
     console.error('[GDrive Admin Error]', error);
-    return NextResponse.json({ error: `Сбой операции: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ error: `Сбой операции: ${error.message}` }, { status: isPermissionError ? 403 : 500 });
   }
 }

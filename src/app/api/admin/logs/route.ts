@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 
 /**
- * GET: Serves the system audit logs (Admin only)
+ * GET: Serves the system audit logs (Users with logs:view permission)
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ запрещен.' }, { status: 403 });
-    }
+    await requirePermissionAsync(req, 'logs:view');
 
     const logs = await prisma.auditLog.findMany({
       include: {
@@ -24,6 +21,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(logs);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
+    return NextResponse.json({ error: error.message }, { status: error.message?.includes('недостаточно прав') || error.message?.includes('авторизация') ? 403 : 500 });
   }
 }

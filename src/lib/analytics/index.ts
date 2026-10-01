@@ -16,7 +16,7 @@ export interface JWTPayload {
   companyId?: string | null;
 }
 
-const VALID_STATUSES = ['NEW', 'ASSEMBLY', 'SHIPPED', 'COMPLETED'];
+const VALID_STATUSES = ['NEW', 'ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED'];
 
 export class AnalyticsService {
   static async getAnalyticsData(session: any, selectedMonthKey?: string | null) {
