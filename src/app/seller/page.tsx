@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { 
   Briefcase, Download, Filter, Search, UserCheck, AlertCircle, 
   Loader2, DollarSign, Package, Layers, TrendingUp, ShoppingBag, Eye, MessageSquare, 
-  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2, Calendar, XCircle
+  BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2, Calendar, XCircle,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
 import { getTashkentTodayString, getTashkentWeekAgoString } from '@/lib/date-utils';
@@ -128,9 +129,23 @@ export default function SellerDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [timeFilter, setTimeFilter] = useState<'ALL' | 'TODAY' | 'WEEK' | 'CUSTOM'>('ALL');
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [customEndDate, setCustomEndDate] = useState('');
-  const [appliedCustomDates, setAppliedCustomDates] = useState<{ start: string; end: string } | null>(null);
+  const [draftStartDate, setDraftStartDate] = useState('');
+  const [draftEndDate, setDraftEndDate] = useState('');
+  const [appliedStartDate, setAppliedStartDate] = useState('');
+  const [appliedEndDate, setAppliedEndDate] = useState('');
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+
+  const toggleOrderExpand = (orderId: string) => {
+    setExpandedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
 
   // Search state for Products
   const [productSearch, setProductSearch] = useState('');
@@ -345,21 +360,8 @@ export default function SellerDashboard() {
   ) => {
     try {
       setLoading(true);
-      let start = overrideStart;
-      let end = overrideEnd;
-
-      if (start === undefined && end === undefined) {
-        if (timeFilter === 'TODAY') {
-          start = getTashkentTodayString();
-          end = getTashkentTodayString();
-        } else if (timeFilter === 'WEEK') {
-          start = getTashkentWeekAgoString();
-          end = getTashkentTodayString();
-        } else if (timeFilter === 'CUSTOM' && appliedCustomDates) {
-          start = appliedCustomDates.start;
-          end = appliedCustomDates.end;
-        }
-      }
+      const start = overrideStart !== undefined ? overrideStart : appliedStartDate;
+      const end = overrideEnd !== undefined ? overrideEnd : appliedEndDate;
 
       const activePage = pageOverride !== undefined ? pageOverride : currentPage;
       const activeSize = sizeOverride !== undefined ? sizeOverride : pageSize;
@@ -401,16 +403,55 @@ export default function SellerDashboard() {
     }
   };
 
-  const handleApplyCustomDates = () => {
-    if (!customStartDate || !customEndDate) {
-      showToast('Пожалуйста, выберите обе даты периода (От и До)', 'error');
-      return;
-    }
-    if (customStartDate > customEndDate) {
+  const handleApplyDateFilter = () => {
+    if (draftStartDate && draftEndDate && draftStartDate > draftEndDate) {
       showToast('Дата "От" не может быть позже даты "До"', 'error');
       return;
     }
-    setAppliedCustomDates({ start: customStartDate, end: customEndDate });
+    setAppliedStartDate(draftStartDate);
+    setAppliedEndDate(draftEndDate);
+    setTimeFilter('CUSTOM');
+    setCurrentPage(1);
+    setExpandedOrders(new Set());
+    loadAllOrders(draftStartDate, draftEndDate, 1, pageSize, statusFilter);
+  };
+
+  const handleResetDateFilter = () => {
+    setDraftStartDate('');
+    setDraftEndDate('');
+    setAppliedStartDate('');
+    setAppliedEndDate('');
+    setTimeFilter('ALL');
+    setCurrentPage(1);
+    setExpandedOrders(new Set());
+    loadAllOrders('', '', 1, pageSize, statusFilter);
+  };
+
+  const handlePresetPeriod = (preset: 'ALL' | 'TODAY' | 'WEEK') => {
+    setTimeFilter(preset);
+    let start = '';
+    let end = '';
+    if (preset === 'TODAY') {
+      start = getTashkentTodayString();
+      end = getTashkentTodayString();
+    } else if (preset === 'WEEK') {
+      start = getTashkentWeekAgoString();
+      end = getTashkentTodayString();
+    }
+    setDraftStartDate(start);
+    setDraftEndDate(end);
+    setAppliedStartDate(start);
+    setAppliedEndDate(end);
+    setCurrentPage(1);
+    setExpandedOrders(new Set());
+    loadAllOrders(start, end, 1, pageSize, statusFilter);
+  };
+
+  const handleStatusFilterChange = (status: string) => {
+    setStatusFilter(status);
+    setCurrentPage(1);
+    setExpandedOrders(new Set());
+    loadAllOrders(appliedStartDate, appliedEndDate, 1, pageSize, status);
   };
 
   const loadProducts = async () => {
@@ -451,15 +492,6 @@ export default function SellerDashboard() {
     loadAllOrders();
     loadProducts();
   }, []);
-
-  useEffect(() => {
-    setCurrentPage(1);
-    if (timeFilter !== 'CUSTOM') {
-      loadAllOrders(undefined, undefined, 1, pageSize, statusFilter);
-    } else if (appliedCustomDates) {
-      loadAllOrders(appliedCustomDates.start, appliedCustomDates.end, 1, pageSize, statusFilter);
-    }
-  }, [timeFilter, appliedCustomDates, statusFilter]);
 
   useEffect(() => {
     if (activeTab === 'products') {
@@ -840,7 +872,7 @@ export default function SellerDashboard() {
                 {['ALL', 'NEW', 'ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'].map(status => (
                   <button
                     key={status}
-                    onClick={() => setStatusFilter(status)}
+                    onClick={() => handleStatusFilterChange(status)}
                     className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all whitespace-nowrap ${
                       statusFilter === status 
                         ? 'bg-cyan-600 text-white shadow-glass-sm' 
@@ -854,57 +886,58 @@ export default function SellerDashboard() {
 
               <div className="flex items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0">
                 <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5">{t('seller.period')}:</span>
-                {(['ALL', 'TODAY', 'WEEK', 'CUSTOM'] as const).map(time => (
+                {(['ALL', 'TODAY', 'WEEK'] as const).map(time => (
                   <button
                     key={time}
-                    onClick={() => setTimeFilter(time)}
+                    onClick={() => handlePresetPeriod(time)}
                     className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all ${
                       timeFilter === time 
                         ? 'bg-cyan-600 text-white shadow-glass-sm' 
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    {time === 'ALL' ? t('common.all') : time === 'TODAY' ? t('seller.today') : time === 'WEEK' ? t('seller.week') : (language === 'uz' ? 'Davr' : language === 'en' ? 'Period' : 'Период')}
+                    {time === 'ALL' ? t('common.all') : time === 'TODAY' ? t('seller.today') : t('seller.week')}
                   </button>
                 ))}
               </div>
 
-              {timeFilter === 'CUSTOM' && (
-                <div className="flex items-center gap-2 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0 text-xs">
+              {/* Date Filter Inputs - ALWAYS VISIBLE */}
+              <div className="flex flex-wrap items-center gap-2 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0 text-xs">
+                <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Dan:' : language === 'en' ? 'From:' : 'От:'}</span>
                   <input
                     type="date"
-                    value={customStartDate}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCustomStartDate(val);
-                      if (val && customEndDate && val <= customEndDate) {
-                        setAppliedCustomDates({ start: val, end: customEndDate });
-                      }
-                    }}
+                    value={draftStartDate}
+                    onChange={(e) => setDraftStartDate(e.target.value)}
                     className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
                   />
+                </div>
+                <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Gacha:' : language === 'en' ? 'To:' : 'До:'}</span>
                   <input
                     type="date"
-                    value={customEndDate}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCustomEndDate(val);
-                      if (customStartDate && val && customStartDate <= val) {
-                        setAppliedCustomDates({ start: customStartDate, end: val });
-                      }
-                    }}
+                    value={draftEndDate}
+                    onChange={(e) => setDraftEndDate(e.target.value)}
                     className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
                   />
-                  <button
-                    onClick={handleApplyCustomDates}
-                    className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-glass-sm"
-                  >
-                    {t('common.apply')}
-                  </button>
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={handleApplyDateFilter}
+                  className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-glass-sm"
+                >
+                  {t('common.apply')}
+                </button>
+                {(draftStartDate || draftEndDate || appliedStartDate || appliedEndDate) && (
+                  <button
+                    type="button"
+                    onClick={handleResetDateFilter}
+                    className="px-2 py-1 text-[10px] font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
+                  >
+                    {language === 'uz' ? 'Bekor qilish' : language === 'en' ? 'Reset' : 'Сбросить'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -935,28 +968,89 @@ export default function SellerDashboard() {
                   });
 
                   const isEditable = order.status === 'DRAFT' || order.status === 'NEW';
+                  const isExpanded = expandedOrders.has(order.id);
+
+                  let orderBoxes = 0;
+                  let orderBlocks = 0;
+                  const uniqueSkus = new Set<string>();
+
+                  order.items?.forEach((item) => {
+                    const packs = item.quantityPacks || 0;
+                    orderBoxes += Math.floor(packs / 500);
+                    orderBlocks += Math.floor((packs % 500) / 10);
+
+                    if (item.skuAllocations && item.skuAllocations.length > 0) {
+                      item.skuAllocations.forEach((a: any) => {
+                        if (a.sku) uniqueSkus.add(a.sku);
+                      });
+                    } else if (item.skuSnapshot || item.product?.sku) {
+                      uniqueSkus.add(item.skuSnapshot || item.product?.sku || '');
+                    }
+                  });
+                  const uniqueSkuCount = uniqueSkus.size;
 
                   return (
-                    <div key={order.id} className="glass-panel rounded-2xl p-5 sm:p-6 flex flex-col justify-between gap-4 border border-white/5 hover:border-white/10 transition-all">
-                      {/* Row header */}
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-white/5">
-                        <div>
+                    <div key={order.id} className="glass-panel rounded-2xl border border-white/5 hover:border-white/10 transition-all overflow-hidden">
+                      {/* Collapsible Header */}
+                      <div
+                        onClick={() => toggleOrderExpand(order.id)}
+                        className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer select-none hover:bg-white/[0.02] transition-colors"
+                      >
+                        <div className="flex flex-wrap items-center gap-3">
                           <div className="flex items-center gap-2">
                             <span className="font-extrabold text-sm sm:text-base text-slate-200">{order.orderNumber}</span>
                             {renderStatusBadge(order.status)}
                           </div>
-                          <span className="block text-[10px] text-slate-400 mt-1 font-semibold">
-                            {t('orders.customer')}: <span className="text-slate-200 font-bold">{order.customer.name}</span> ({order.customer.email})
+                          <span className="text-xs text-slate-300 font-semibold">
+                            {order.customer.name}
                           </span>
                         </div>
 
-                        <div className="text-left sm:text-right">
-                          <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider">{t('seller.dealSum')}</span>
-                          <span className="block font-extrabold text-base text-emerald-400 mt-0.5 leading-none">{order.totalPrice.toLocaleString(locale)} so'm</span>
+                        <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-semibold text-[11px]">
+                              {orderBoxes} {t('units.casesShort')} · {orderBlocks} {t('units.blocksShort')}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 font-semibold text-[11px]">
+                              {uniqueSkuCount} SKU
+                            </span>
+                          </div>
+
+                          <span className="font-extrabold text-sm sm:text-base text-emerald-400">
+                            {order.totalPrice.toLocaleString(locale)} so'm
+                          </span>
+
+                          <span className="text-[11px] text-slate-400">
+                            {date}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleOrderExpand(order.id);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+                            title={isExpanded ? 'Свернуть' : 'Развернуть'}
+                          >
+                            {isExpanded ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </button>
                         </div>
                       </div>
 
-                      {/* SKU breakdown details grid */}
+                      {/* Expanded Content */}
+                      {isExpanded && (
+                        <div className="border-t border-white/5 p-5 sm:p-6 pt-4 flex flex-col gap-4 animate-fade-in">
+                          {/* Customer line */}
+                          <div className="text-[11px] text-slate-400 font-semibold">
+                            {t('orders.customer')}: <span className="text-slate-200 font-bold">{order.customer.name}</span> ({order.customer.email})
+                          </div>
+
+                          {/* SKU breakdown details grid */}
                       <div className="py-1">
                         <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-2">{t('seller.purchaseList')}</span>
                         <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
@@ -1064,7 +1158,7 @@ export default function SellerDashboard() {
                       {/* Actions & Summary breakdown footer */}
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-3 border-t border-white/5 w-full">
                         <div className="text-[10px] text-slate-400 font-semibold">
-                          {t('seller.volume')}: <span className="text-slate-200 font-bold">{order.totalBlocks} {t('units.blocks')}</span> / <span className="text-slate-200 font-bold">{order.totalCases} {t('units.cases')}</span>
+                          {t('seller.volume')}: <span className="text-slate-200 font-bold">{orderBlocks} {t('units.blocks')}</span> / <span className="text-slate-200 font-bold">{orderBoxes} {t('units.cases')}</span>
                           <span className="ml-3 text-slate-500">({date})</span>
                         </div>
 
@@ -1458,62 +1552,67 @@ export default function SellerDashboard() {
                         </div>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Pagination Controls */}
-            {(totalPages > 1 || totalOrders > 25) && (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 glass-panel rounded-2xl border border-white/5 text-xs text-slate-400">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-slate-400">Показывать по:</span>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      const newSize = Number(e.target.value);
-                      setPageSize(newSize);
-                      setCurrentPage(1);
-                      loadAllOrders(undefined, undefined, 1, newSize, statusFilter);
-                    }}
-                    className="bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-cyan-500 cursor-pointer"
-                  >
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                  <span className="text-[11px] text-slate-500">из {totalOrders} заказов</span>
+                  )}
                 </div>
+              );
+            })}
+          </div>
+        )}
 
-                <div className="flex items-center gap-3">
-                  <button
-                    disabled={currentPage <= 1 || loading}
-                    onClick={() => {
-                      const p = currentPage - 1;
-                      setCurrentPage(p);
-                      loadAllOrders(undefined, undefined, p, pageSize, statusFilter);
-                    }}
-                    className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
-                  >
-                    {language === 'uz' ? 'Orqaga' : language === 'en' ? 'Previous' : 'Назад'}
-                  </button>
-                  <span className="font-bold text-slate-200 text-xs px-2">
-                    {currentPage} / {totalPages}
-                  </span>
-                  <button
-                    disabled={currentPage >= totalPages || loading}
-                    onClick={() => {
-                      const p = currentPage + 1;
-                      setCurrentPage(p);
-                      loadAllOrders(undefined, undefined, p, pageSize, statusFilter);
-                    }}
-                    className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
-                  >
-                    {language === 'uz' ? 'Oldinga' : language === 'en' ? 'Next' : 'Вперед'}
-                  </button>
-                </div>
-              </div>
-            )}
+        {/* Pagination Controls */}
+        {(totalPages > 1 || totalOrders > 25) && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 glass-panel rounded-2xl border border-white/5 text-xs text-slate-400">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400">Показывать по:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  const newSize = Number(e.target.value);
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                  setExpandedOrders(new Set());
+                  loadAllOrders(undefined, undefined, 1, newSize, statusFilter);
+                }}
+                className="bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-cyan-500 cursor-pointer"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-[11px] text-slate-500">из {totalOrders} заказов</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                disabled={currentPage <= 1 || loading}
+                onClick={() => {
+                  const p = currentPage - 1;
+                  setCurrentPage(p);
+                  setExpandedOrders(new Set());
+                  loadAllOrders(undefined, undefined, p, pageSize, statusFilter);
+                }}
+                className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
+              >
+                {language === 'uz' ? 'Orqaga' : language === 'en' ? 'Previous' : 'Назад'}
+              </button>
+              <span className="font-bold text-slate-200 text-xs px-2">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                disabled={currentPage >= totalPages || loading}
+                onClick={() => {
+                  const p = currentPage + 1;
+                  setCurrentPage(p);
+                  setExpandedOrders(new Set());
+                  loadAllOrders(undefined, undefined, p, pageSize, statusFilter);
+                }}
+                className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
+              >
+                {language === 'uz' ? 'Oldinga' : language === 'en' ? 'Next' : 'Вперед'}
+              </button>
+            </div>
+          </div>
+        )}
           </div>
         </>
       ) : (

@@ -4,7 +4,7 @@ import path from 'path';
 import { generateExcelOrder, ExcelOrderData } from '../src/lib/excel';
 
 async function main() {
-  console.log('--- RUNNING TEST: EXCEL QUANTITY BREAKDOWN ---');
+  console.log('--- RUNNING TEST: EXCEL QUANTITY BREAKDOWN (8 SCENARIOS) ---');
 
   let passed = 0;
   let failed = 0;
@@ -19,181 +19,308 @@ async function main() {
     }
   }
 
-  // 1. Check strict mathematical breakdown function
-  const testQuantities = [
-    { packs: 10, expectedBoxes: 0, expectedRemBlocks: 1, expectedTotalBlocks: 1, expectedRemPacks: 0 },
-    { packs: 480, expectedBoxes: 0, expectedRemBlocks: 48, expectedTotalBlocks: 48, expectedRemPacks: 0 },
-    { packs: 500, expectedBoxes: 1, expectedRemBlocks: 0, expectedTotalBlocks: 50, expectedRemPacks: 0 },
-    { packs: 510, expectedBoxes: 1, expectedRemBlocks: 1, expectedTotalBlocks: 51, expectedRemPacks: 0 },
-    { packs: 980, expectedBoxes: 1, expectedRemBlocks: 48, expectedTotalBlocks: 98, expectedRemPacks: 0 },
-    { packs: 1000, expectedBoxes: 2, expectedRemBlocks: 0, expectedTotalBlocks: 100, expectedRemPacks: 0 },
-  ];
+  // Create an in-memory template that captures both item and total placeholders
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Order');
+  ws.getCell('A1').value = 'Client: {CLIENT_NAME}';
+  ws.getCell('A2').value = 'Order: {ORDER_NUMBER}';
+  ws.getCell('A3').value = '{SKU_NAME}';
+  ws.getCell('B3').value = '{QTY_CASES}';
+  ws.getCell('C3').value = '{QTY_BLOCKS}';
+  ws.getCell('D3').value = '{QTY_PACKS}';
+  ws.getCell('E3').value = '{TOTAL_BLOCKS}';
+  ws.getCell('A4').value = 'Итого:';
+  ws.getCell('B4').value = '{TOTAL_CASES}';
+  ws.getCell('C4').value = '{TOTAL_BLOCKS}';
+  ws.getCell('D4').value = '{TOTAL_PACKS}';
+  const templateBuffer = Buffer.from(await wb.xlsx.writeBuffer());
 
-  for (const t of testQuantities) {
-    const boxes = Math.floor(t.packs / 500);
-    const remPacks = t.packs % 500;
-    const remBlocks = Math.floor(remPacks / 10);
-    const loosePacks = remPacks % 10;
-    const totalBlocks = Math.floor(t.packs / 10);
+  // Helper to run order through generateExcelOrder and parse results
+  async function testOrderScenario(
+    testName: string,
+    orderData: ExcelOrderData,
+    expectedTotalCases: number,
+    expectedTotalBlocks: number
+  ) {
+    const buffer = await generateExcelOrder(templateBuffer, orderData);
+    const resultWb = new ExcelJS.Workbook();
+    await resultWb.xlsx.load(buffer as any);
+    const resultWs = resultWb.worksheets[0];
 
-    assert(boxes === t.expectedBoxes, `Math ${t.packs}p: boxes === ${t.expectedBoxes} (got ${boxes})`);
-    assert(remBlocks === t.expectedRemBlocks, `Math ${t.packs}p: remBlocks === ${t.expectedRemBlocks} (got ${remBlocks})`);
-    assert(totalBlocks === t.expectedTotalBlocks, `Math ${t.packs}p: totalBlocks === ${t.expectedTotalBlocks} (got ${totalBlocks})`);
-    assert(loosePacks === t.expectedRemPacks, `Math ${t.packs}p: loosePacks === ${t.expectedRemPacks} (got ${loosePacks})`);
+    // Find summary row (marked by 'Итого:' in column A)
+    let summaryRow: ExcelJS.Row | null = null;
+    resultWs.eachRow((row) => {
+      if (String(row.getCell(1).value ?? '').trim() === 'Итого:') {
+        summaryRow = row;
+      }
+    });
+
+    if (!summaryRow) {
+      assert(false, `${testName}: Summary row not found`);
+      return;
+    }
+
+    const actualTotalCases = Number((summaryRow as ExcelJS.Row).getCell(2).value);
+    const actualTotalBlocks = Number((summaryRow as ExcelJS.Row).getCell(3).value);
+
+    assert(
+      actualTotalCases === expectedTotalCases,
+      `${testName}: TOTAL_CASES expected ${expectedTotalCases}, got ${actualTotalCases}`
+    );
+    assert(
+      actualTotalBlocks === expectedTotalBlocks,
+      `${testName}: TOTAL_BLOCKS expected ${expectedTotalBlocks}, got ${actualTotalBlocks}`
+    );
   }
 
-  // 2. Test generateExcelOrder with a dynamic workbook
-  const templatePath = path.join(process.cwd(), 'templates', 'order_template.xlsx');
-  let templateBuffer: Buffer;
-  if (fs.existsSync(templatePath)) {
-    templateBuffer = fs.readFileSync(templatePath);
-  } else {
-    // Generate a test template in memory
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Order');
-    ws.getCell('A1').value = 'Client: {CLIENT_NAME}';
-    ws.getCell('A2').value = 'Order: {ORDER_NUMBER}';
-    ws.getCell('A3').value = '{SKU_NAME}';
-    ws.getCell('B3').value = '{QTY_CASES}';
-    ws.getCell('C3').value = '{QTY_BLOCKS}';
-    ws.getCell('D3').value = '{QTY_PACKS}';
-    ws.getCell('E3').value = '{TOTAL_BLOCKS}';
-    ws.getCell('A4').value = 'Итого:';
-    ws.getCell('B4').value = '{TOTAL_CASES}';
-    ws.getCell('C4').value = '{TOTAL_BLOCKS}';
-    ws.getCell('D4').value = '{TOTAL_PACKS}';
-    templateBuffer = Buffer.from(await wb.xlsx.writeBuffer());
-  }
+  // SCENARIO 1: 70 blocks across multiple SKUs (e.g. 7 SKUs x 10 blocks each) -> 0 boxes / 70 blocks
+  await testOrderScenario(
+    'Scenario 1 (70 blocks across 7 SKUs)',
+    {
+      clientName: 'Client 1',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-1',
+      totalBlocks: 70,
+      totalCases: 0,
+      totalPrice: 700000,
+      items: Array.from({ length: 7 }, (_, i) => ({
+        sku: `SKU-${i + 1}`,
+        name: `Item ${i + 1}`,
+        packs: 100, // 10 blocks
+        blocks: 10,
+        cases: 0,
+        totalQuantityPacks: 100,
+        totalQuantityBlocks: 10,
+        price: 1000,
+        itemTotalPrice: 100000
+      }))
+    },
+    0,
+    70
+  );
 
-  // TEST 2A: 500 packs order (1 box, 0 rem blocks, 50 total blocks)
-  const orderData500: ExcelOrderData = {
-    clientName: 'Test Retail 500',
-    orderDate: '2026-09-30',
-    orderNumber: 'ORD-500',
-    totalBlocks: 50,
-    totalCases: 1,
-    totalPrice: 5000000,
-    items: [
-      {
-        sku: 'SKU-500',
-        name: 'Product 500',
-        packs: 500,
-        blocks: 50,
-        cases: 1,
-        totalQuantityPacks: 500,
-        totalQuantityBlocks: 50,
-        price: 10000,
-        itemTotalPrice: 5000000
-      }
-    ]
-  };
+  // SCENARIO 2: 50 blocks one SKU -> 1 box / 0 blocks
+  await testOrderScenario(
+    'Scenario 2 (50 blocks one SKU)',
+    {
+      clientName: 'Client 2',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-2',
+      totalBlocks: 50,
+      totalCases: 1,
+      totalPrice: 500000,
+      items: [
+        {
+          sku: 'SKU-50BL',
+          name: 'Item 50BL',
+          packs: 500,
+          blocks: 50,
+          cases: 1,
+          totalQuantityPacks: 500,
+          totalQuantityBlocks: 50,
+          price: 1000,
+          itemTotalPrice: 500000
+        }
+      ]
+    },
+    1,
+    0
+  );
 
-  const buffer500 = await generateExcelOrder(templateBuffer, orderData500);
-  const resultWb500 = new ExcelJS.Workbook();
-  await resultWb500.xlsx.load(buffer500 as any);
-  const ws500 = resultWb500.worksheets[0];
+  // SCENARIO 3: 49 blocks one SKU -> 0 boxes / 49 blocks
+  await testOrderScenario(
+    'Scenario 3 (49 blocks one SKU)',
+    {
+      clientName: 'Client 3',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-3',
+      totalBlocks: 49,
+      totalCases: 0,
+      totalPrice: 490000,
+      items: [
+        {
+          sku: 'SKU-49BL',
+          name: 'Item 49BL',
+          packs: 490,
+          blocks: 49,
+          cases: 0,
+          totalQuantityPacks: 490,
+          totalQuantityBlocks: 49,
+          price: 1000,
+          itemTotalPrice: 490000
+        }
+      ]
+    },
+    0,
+    49
+  );
 
-  // Inspect generated rows in 500 packs order
-  let foundTotalBlocks500 = false;
-  let foundTotalCases500 = false;
-  let foundQtyCases500 = false;
-  let foundQtyBlocks500 = false;
+  // SCENARIO 4: 500 packs one SKU -> 1 box / 0 blocks
+  await testOrderScenario(
+    'Scenario 4 (500 packs one SKU)',
+    {
+      clientName: 'Client 4',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-4',
+      totalBlocks: 50,
+      totalCases: 1,
+      totalPrice: 500000,
+      items: [
+        {
+          sku: 'SKU-500P',
+          name: 'Item 500P',
+          packs: 500,
+          blocks: 50,
+          cases: 1,
+          totalQuantityPacks: 500,
+          totalQuantityBlocks: 50,
+          price: 1000,
+          itemTotalPrice: 500000
+        }
+      ]
+    },
+    1,
+    0
+  );
 
-  ws500.eachRow((row) => {
-    row.eachCell((cell) => {
-      const v = String(cell.value ?? '');
-      if (v === '50') foundTotalBlocks500 = true;
-      if (v === '1') foundTotalCases500 = true;
-      if (v === '0') foundQtyBlocks500 = true;
-    });
-  });
+  // SCENARIO 5: 600 packs one SKU -> 1 box + 10 blocks
+  await testOrderScenario(
+    'Scenario 5 (600 packs one SKU)',
+    {
+      clientName: 'Client 5',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-5',
+      totalBlocks: 60,
+      totalCases: 1.2,
+      totalPrice: 600000,
+      items: [
+        {
+          sku: 'SKU-600P',
+          name: 'Item 600P',
+          packs: 600,
+          blocks: 60,
+          cases: 1,
+          totalQuantityPacks: 600,
+          totalQuantityBlocks: 60,
+          price: 1000,
+          itemTotalPrice: 600000
+        }
+      ]
+    },
+    1,
+    10
+  );
 
-  assert(foundTotalBlocks500, 'Excel 500p: {TOTAL_BLOCKS} is 50 (NOT 0)');
-  assert(foundTotalCases500, 'Excel 500p: {TOTAL_CASES} is 1');
+  // SCENARIO 6: 980 packs one SKU -> 1 box + 48 blocks
+  await testOrderScenario(
+    'Scenario 6 (980 packs one SKU)',
+    {
+      clientName: 'Client 6',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-6',
+      totalBlocks: 98,
+      totalCases: 1.96,
+      totalPrice: 980000,
+      items: [
+        {
+          sku: 'SKU-980P',
+          name: 'Item 980P',
+          packs: 980,
+          blocks: 98,
+          cases: 1,
+          totalQuantityPacks: 980,
+          totalQuantityBlocks: 98,
+          price: 1000,
+          itemTotalPrice: 980000
+        }
+      ]
+    },
+    1,
+    48
+  );
 
-  // TEST 2B: 980 packs order (1 box, 48 rem blocks, 98 total blocks)
-  const orderData980: ExcelOrderData = {
-    clientName: 'Test Retail 980',
-    orderDate: '2026-09-30',
-    orderNumber: 'ORD-980',
-    totalBlocks: 98,
-    totalCases: 1.96,
-    totalPrice: 9800000,
-    items: [
-      {
-        sku: 'SKU-980',
-        name: 'Product 980',
-        packs: 980,
-        blocks: 98,
-        cases: 1,
-        totalQuantityPacks: 980,
-        totalQuantityBlocks: 98,
-        price: 10000,
-        itemTotalPrice: 9800000
-      }
-    ]
-  };
+  // SCENARIO 7: Multiple SKUs where only one reaches 500 packs -> 1 box + 20 blocks
+  // SKU 1: 500 packs (1 box, 0 blocks)
+  // SKU 2: 200 packs (0 boxes, 20 blocks)
+  await testOrderScenario(
+    'Scenario 7 (SKU 1: 500 packs, SKU 2: 200 packs)',
+    {
+      clientName: 'Client 7',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-7',
+      totalBlocks: 70,
+      totalCases: 1.4,
+      totalPrice: 700000,
+      items: [
+        {
+          sku: 'SKU-7A',
+          name: 'Item 7A',
+          packs: 500,
+          blocks: 50,
+          cases: 1,
+          totalQuantityPacks: 500,
+          totalQuantityBlocks: 50,
+          price: 1000,
+          itemTotalPrice: 500000
+        },
+        {
+          sku: 'SKU-7B',
+          name: 'Item 7B',
+          packs: 200,
+          blocks: 20,
+          cases: 0,
+          totalQuantityPacks: 200,
+          totalQuantityBlocks: 20,
+          price: 1000,
+          itemTotalPrice: 200000
+        }
+      ]
+    },
+    1,
+    20
+  );
 
-  const buffer980 = await generateExcelOrder(templateBuffer, orderData980);
-  const resultWb980 = new ExcelJS.Workbook();
-  await resultWb980.xlsx.load(buffer980 as any);
-  const ws980 = resultWb980.worksheets[0];
-
-  let foundTotalBlocks980 = false;
-  let foundQtyBlocks980 = false;
-
-  ws980.eachRow((row) => {
-    row.eachCell((cell) => {
-      const v = String(cell.value ?? '');
-      if (v === '98') foundTotalBlocks980 = true;
-      if (v === '48') foundQtyBlocks980 = true;
-    });
-  });
-
-  assert(foundTotalBlocks980, 'Excel 980p: {TOTAL_BLOCKS} is 98');
-  assert(foundQtyBlocks980, 'Excel 980p: {QTY_BLOCKS} is 48');
-
-  // TEST 2C: 1000 packs order (2 boxes, 0 rem blocks, 100 total blocks)
-  const orderData1000: ExcelOrderData = {
-    clientName: 'Test Retail 1000',
-    orderDate: '2026-09-30',
-    orderNumber: 'ORD-1000',
-    totalBlocks: 100,
-    totalCases: 2,
-    totalPrice: 10000000,
-    items: [
-      {
-        sku: 'SKU-1000',
-        name: 'Product 1000',
-        packs: 1000,
-        blocks: 100,
-        cases: 2,
-        totalQuantityPacks: 1000,
-        totalQuantityBlocks: 100,
-        price: 10000,
-        itemTotalPrice: 10000000
-      }
-    ]
-  };
-
-  const buffer1000 = await generateExcelOrder(templateBuffer, orderData1000);
-  const resultWb1000 = new ExcelJS.Workbook();
-  await resultWb1000.xlsx.load(buffer1000 as any);
-  const ws1000 = resultWb1000.worksheets[0];
-
-  let foundTotalBlocks1000 = false;
-  let foundTotalCases1000 = false;
-
-  ws1000.eachRow((row) => {
-    row.eachCell((cell) => {
-      const v = String(cell.value ?? '');
-      if (v === '100') foundTotalBlocks1000 = true;
-      if (v === '2') foundTotalCases1000 = true;
-    });
-  });
-
-  assert(foundTotalBlocks1000, 'Excel 1000p: {TOTAL_BLOCKS} is 100 (NOT 0)');
-  assert(foundTotalCases1000, 'Excel 1000p: {TOTAL_CASES} is 2');
+  // SCENARIO 8: Multiple SKUs where total > 500 packs, but no single SKU reaches 500 packs
+  // SKU 1: 300 packs (0 boxes, 30 blocks)
+  // SKU 2: 300 packs (0 boxes, 30 blocks)
+  // Total: 600 packs -> 0 boxes / 60 blocks (NOT 1 box + 10 blocks!)
+  await testOrderScenario(
+    'Scenario 8 (SKU 1: 300 packs, SKU 2: 300 packs - total 600 packs)',
+    {
+      clientName: 'Client 8',
+      orderDate: '2026-10-01',
+      orderNumber: 'ORD-8',
+      totalBlocks: 60,
+      totalCases: 0,
+      totalPrice: 600000,
+      items: [
+        {
+          sku: 'SKU-8A',
+          name: 'Item 8A',
+          packs: 300,
+          blocks: 30,
+          cases: 0,
+          totalQuantityPacks: 300,
+          totalQuantityBlocks: 30,
+          price: 1000,
+          itemTotalPrice: 300000
+        },
+        {
+          sku: 'SKU-8B',
+          name: 'Item 8B',
+          packs: 300,
+          blocks: 30,
+          cases: 0,
+          totalQuantityPacks: 300,
+          totalQuantityBlocks: 30,
+          price: 1000,
+          itemTotalPrice: 300000
+        }
+      ]
+    },
+    0,
+    60
+  );
 
   console.log(`\nResult: ${passed} passed, ${failed} failed.`);
   if (failed > 0) process.exit(1);

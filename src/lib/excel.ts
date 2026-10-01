@@ -53,12 +53,35 @@ export async function generateExcelOrder(
     throw new Error('Template does not contain any worksheets.');
   }
 
-  // Calculate global breakdown totals using canonical totalQuantityPacks with packs fallback
-  const totalPacksSum = orderData.items.reduce((sum, item) => sum + (item.totalQuantityPacks ?? item.packs), 0);
-  const totalCases = Math.floor(totalPacksSum / 500);
-  const totalBlocks = Math.floor(totalPacksSum / 10);
-  const totalBlocksBreakdown = Math.floor((totalPacksSum % 500) / 10);
-  const totalPacksBreakdown = totalPacksSum % 10;
+  // Calculate global breakdown totals per SKU, then sum up:
+  // For each SKU:
+  // boxes = Math.floor(packs / 500)
+  // remainingPacks = packs % 500
+  // blocks = Math.floor(remainingPacks / 10)
+  // loosePacks = remainingPacks % 10
+  //
+  // Order totals:
+  // totalBoxes = SUM(itemBoxes)
+  // totalBlocks = SUM(itemBlocks)
+  // totalPacks = SUM(itemLoosePacks)
+  // totalPacksSum = SUM(packs)
+  let totalCases = 0;
+  let totalBlocks = 0;
+  let totalLoosePacks = 0;
+  let totalPacksSum = 0;
+
+  for (const item of orderData.items) {
+    const packs = item.totalQuantityPacks ?? item.packs ?? 0;
+    const itemBoxes = Math.floor(packs / 500);
+    const remPacks = packs % 500;
+    const itemBlocks = Math.floor(remPacks / 10);
+    const itemLoose = remPacks % 10;
+
+    totalCases += itemBoxes;
+    totalBlocks += itemBlocks;
+    totalLoosePacks += itemLoose;
+    totalPacksSum += packs;
+  }
 
   // 1. Identify repeating row or static rows
   let dynamicRowIndex = -1;
@@ -220,13 +243,13 @@ export async function generateExcelOrder(
     '{ORDER_NUMBER}': orderData.orderNumber,
     '{TOTAL_BLOCKS}': totalBlocks,
     '{TOTAL_CASES}': totalCases,
-    '{TOTAL_PACKS}': totalPacksSum,
+    '{TOTAL_PACKS}': totalLoosePacks,
     '{TOTAL_QTY_PACKS}': totalPacksSum,
     '{TOTAL_PRICE}': orderData.totalPrice,
-    '{BREAKDOWN_BLOCKS}': totalBlocksBreakdown,
-    '{BREAKDOWN_PACKS}': totalPacksBreakdown,
-    '{REM_BLOCKS}': totalBlocksBreakdown,
-    '{REM_PACKS}': totalPacksBreakdown
+    '{BREAKDOWN_BLOCKS}': totalBlocks,
+    '{BREAKDOWN_PACKS}': totalLoosePacks,
+    '{REM_BLOCKS}': totalBlocks,
+    '{REM_PACKS}': totalLoosePacks
   };
 
   worksheet.eachRow((row) => {
