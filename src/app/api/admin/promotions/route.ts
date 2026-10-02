@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requirePermission } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
+import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -113,6 +114,8 @@ export async function POST(req: NextRequest) {
       details: `Пользователь ${session.email} создал акцию "${promotion.name}" (тип: ${promotion.type})`,
       req
     });
+
+    invalidateOrderCalculationConfig();
 
     return NextResponse.json({ success: true, promotion });
   } catch (error: any) {

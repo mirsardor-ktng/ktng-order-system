@@ -7,7 +7,23 @@ export interface SkuAllocation {
   packs: number;
 }
 
+interface CatalogCacheEntry {
+  groups: any[];
+  ungrouped: any[];
+  expiresAt: number;
+}
+
+let catalogCache: CatalogCacheEntry | null = null;
+const CATALOG_CACHE_TTL_MS = 60 * 1000;
+
 export class ProductGroupService {
+  /**
+   * Invalidates catalog cache when products or groups change.
+   */
+  static invalidateCatalogCache() {
+    catalogCache = null;
+  }
+
   /**
    * Returns all groups with aggregated stock, active SKUs and their details.
    */
@@ -26,35 +42,53 @@ export class ProductGroupService {
   /**
    * Returns groups visible to customers (active groups with at least 1 active SKU).
    * Aggregates stockPacks, uses basePrice from highest-priority SKU.
+   * Utilizes in-memory cache to reduce database round-trips.
    */
   static async getCatalogGroups(filters: { search?: string; favoritesOnly?: boolean } = {}) {
     const totalStart = performance.now();
     const { search, favoritesOnly } = filters;
+    const now = Date.now();
 
-    // 1. Fetch active product groups
-    const dbStart = performance.now();
-    const groups = await prisma.productGroup.findMany({
-      where: { isActive: true },
-      include: {
-        skus: {
+    let groups: any[];
+    let ungroupedProducts: any[];
+    let dbMs = 0;
+
+    if (catalogCache && catalogCache.expiresAt > now) {
+      groups = catalogCache.groups;
+      ungroupedProducts = catalogCache.ungrouped;
+    } else {
+      const dbStart = performance.now();
+      const [dbGroups, dbUngrouped] = await Promise.all([
+        prisma.productGroup.findMany({
           where: { isActive: true },
-          orderBy: { priority: 'asc' },
-          include: { tags: true }
-        }
-      },
-      orderBy: { displayName: 'asc' }
-    });
+          include: {
+            skus: {
+              where: { isActive: true },
+              orderBy: { priority: 'asc' },
+              include: { tags: true }
+            }
+          },
+          orderBy: { displayName: 'asc' }
+        }),
+        prisma.product.findMany({
+          where: {
+            groupId: null,
+            isActive: true
+          },
+          include: { tags: true },
+          orderBy: { name: 'asc' }
+        })
+      ]);
+      dbMs = Math.round(performance.now() - dbStart);
+      groups = dbGroups;
+      ungroupedProducts = dbUngrouped;
 
-    // 2. Fetch ungrouped active products (if any exist before migration)
-    const ungroupedProducts = await prisma.product.findMany({
-      where: {
-        groupId: null,
-        isActive: true
-      },
-      include: { tags: true },
-      orderBy: { name: 'asc' }
-    });
-    const dbMs = Math.round(performance.now() - dbStart);
+      catalogCache = {
+        groups,
+        ungrouped: ungroupedProducts,
+        expiresAt: now + CATALOG_CACHE_TTL_MS
+      };
+    }
 
     const transformStart = performance.now();
     const groupItems = groups

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requirePermission, requirePermissionAsync, hasPermission, getSession, getEffectivePermissions } from '@/lib/auth';
 import { uploadProductImage, deleteProductImage } from '@/lib/storage';
+import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
+import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,6 +143,9 @@ export async function PUT(req: NextRequest) {
         }
       });
 
+      invalidateOrderCalculationConfig();
+      ProductGroupService.invalidateCatalogCache();
+
       return NextResponse.json({ success: true, count: ids.length });
     }
 
@@ -192,6 +197,9 @@ export async function PUT(req: NextRequest) {
         details: `Пользователь ${session.email} обновил SKU ${product.sku}`
       }
     });
+
+    invalidateOrderCalculationConfig();
+    ProductGroupService.invalidateCatalogCache();
 
     return NextResponse.json({ success: true, product });
   } catch (error: any) {
@@ -258,6 +266,9 @@ export async function DELETE(req: NextRequest) {
         }
       });
 
+      invalidateOrderCalculationConfig();
+      ProductGroupService.invalidateCatalogCache();
+
       return NextResponse.json({ success: true, message: `Успешно удалено ${ids.length} товаров из каталога.` });
     }
 
@@ -284,6 +295,9 @@ export async function DELETE(req: NextRequest) {
         details: `Удален товар SKU: ${product.sku} - ${product.name}`
       }
     });
+
+    invalidateOrderCalculationConfig();
+    ProductGroupService.invalidateCatalogCache();
 
     return NextResponse.json({ success: true, message: `Товар "${product.name}" удалён из каталога.` });
   } catch (error: any) {
@@ -414,6 +428,9 @@ export async function POST(req: NextRequest) {
         details: `Создан товар ${product.sku}`
       }
     });
+
+    invalidateOrderCalculationConfig();
+    ProductGroupService.invalidateCatalogCache();
 
     return NextResponse.json({
       success: true,

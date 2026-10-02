@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
+import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
+import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -27,6 +29,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   });
 
+  invalidateOrderCalculationConfig();
+  ProductGroupService.invalidateCatalogCache();
+
   return NextResponse.json(group);
 }
 
@@ -47,6 +52,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   });
 
   await prisma.productGroup.delete({ where: { id: params.id } });
+
+  invalidateOrderCalculationConfig();
+  ProductGroupService.invalidateCatalogCache();
 
   return NextResponse.json({ success: true });
 }
