@@ -6,6 +6,8 @@ import confetti from 'canvas-confetti';
 import { UnitMode, packsToUnit, unitToPacks, breakdownPacks } from '@/lib/conversion';
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 import { useTranslation } from '@/i18n/context';
+import { calculateOrderPure } from '@/lib/calculation/engine';
+import type { OrderCalculationConfig } from '@/lib/calculation/types';
 
 interface TagItem {
 
@@ -135,6 +137,8 @@ export default function CustomerCatalog() {
 
   // Real-time Promotion Engine Calculated Order state
   const [calculatedOrder, setCalculatedOrder] = useState<any | null>(null);
+  // Cached calculation configuration for instant, zero-network client calculations
+  const [calcConfig, setCalcConfig] = useState<OrderCalculationConfig | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [saveDrafting, setSaveDrafting] = useState(false);
@@ -148,7 +152,7 @@ export default function CustomerCatalog() {
   // Request sequence counter for stale response protection
   const calculateSeqRef = useRef<number>(0);
 
-  // Real-time calculation effect via Promotion Engine API (Debounced 350ms + AbortController)
+  // Real-time calculation effect: uses local pure engine when config is loaded, zero network requests!
   useEffect(() => {
     const items = Object.keys(cart)
       .filter(pId => (cart[pId] || 0) > 0)
@@ -166,6 +170,18 @@ export default function CustomerCatalog() {
       return;
     }
 
+    // Fast path: instant client-side calculation (0 ms, 0 network calls)
+    if (calcConfig) {
+      try {
+        const localResult = calculateOrderPure(items, calcConfig);
+        setCalculatedOrder(localResult);
+        return;
+      } catch (err) {
+        console.error('Local calculation failed, falling back to server API', err);
+      }
+    }
+
+    // Fallback: Debounced 350ms server calculation if config not yet available
     const currentSeq = ++calculateSeqRef.current;
     const controller = new AbortController();
 
@@ -193,20 +209,29 @@ export default function CustomerCatalog() {
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [cart, products]);
+  }, [cart, products, calcConfig]);
 
-  // Fetch product catalog on mount
+  // Fetch product catalog and calculation config on mount in parallel
   useEffect(() => {
     async function loadCatalog() {
       try {
-        const res = await fetch('/api/products');
-        if (res.ok) {
-          const data = await res.json();
+        const [prodRes, configRes] = await Promise.all([
+          fetch('/api/products'),
+          fetch('/api/orders/calculation-config')
+        ]);
+
+        if (configRes.ok) {
+          const configData = await configRes.json();
+          setCalcConfig(configData);
+        }
+
+        if (prodRes.ok) {
+          const data = await prodRes.json();
           setProducts(data);
           return data;
         }
       } catch (err) {
-        console.error('Failed to load catalog', err);
+        console.error('Failed to load catalog or config', err);
       } finally {
         setLoading(false);
       }
