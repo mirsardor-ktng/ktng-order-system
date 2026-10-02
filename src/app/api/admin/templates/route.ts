@@ -4,6 +4,7 @@ import path from 'path';
 import prisma from '@/lib/db';
 import { requirePermissionAsync } from '@/lib/auth';
 import { uploadFile } from '@/lib/gdrive';
+import { OrdersService } from '@/lib/orders/orders.service';
 
 async function requireAdmin(req: NextRequest) {
   return await requirePermissionAsync(req, 'templates:manage');
@@ -118,6 +119,8 @@ export async function POST(req: NextRequest) {
       }
     });
 
+    OrdersService.invalidateTemplateCache();
+
     return NextResponse.json({
       success: true,
       template: newTemplate,
@@ -164,6 +167,8 @@ export async function PUT(req: NextRequest) {
         details: `Администратор обновил шаблон ${updatedTemplate.name}: active=${updatedTemplate.isActive}, outputMode=${updatedTemplate.outputMode}`
       }
     });
+
+    OrdersService.invalidateTemplateCache();
 
     return NextResponse.json({
       success: true,
@@ -222,6 +227,8 @@ export async function DELETE(req: NextRequest) {
         details: `Администратор удалил шаблон Excel: ${template.name}`
       }
     });
+
+    OrdersService.invalidateTemplateCache();
 
     return NextResponse.json({ success: true, message: `Шаблон "${template.name}" удален.` });
   } catch (error: any) {
