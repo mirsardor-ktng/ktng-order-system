@@ -25,6 +25,11 @@ export const uz: Dictionary = {
     details: 'Batafsil',
     apply: 'Qo‘llash',
     reset: 'Tozalash',
+    loadMore: 'Yana ko‘rsatish',
+    previous: 'Orqaga',
+    next: 'Oldinga',
+    from: 'Dan',
+    to: 'Gacha',
     error: 'Xatolik',
     success: 'Muvaffaqiyatli',
     notFound: 'Topilmadi',
@@ -108,6 +113,7 @@ export const uz: Dictionary = {
   },
   orders: {
     title: 'Buyurtmani rasmiylashtirish',
+    orders: 'Buyurtmalar',
     historyTitle: 'Buyurtmalar tarixi',
     newOrder: 'Yangi buyurtma',
     draft: 'Qoralama',
@@ -166,6 +172,7 @@ export const uz: Dictionary = {
     casesConversionHint: '1 quti = 50 blok (500 pachka)',
     blocksShipped: 'Yuklangan bloklar',
     blocksConversionHint: '1 blok = 10 pachka',
+    totalOrdersCountHint: 'Jami rasmiylashtirilgan buyurtmalar',
     activeClients: 'Faol mijozlar',
     companiesCount: 'kompaniyalar',
     madeAtLeastOneOrder: 'Kamida 1 ta buyurtma bergan',
@@ -261,7 +268,9 @@ export const uz: Dictionary = {
     casesUnit: 'quti',
     blocksShippedDesc: 'blok (jo‘natilgan buyurtmalar)',
     currentMonthPlan: 'Joriy oy rejasi',
-    planNotSet: 'Kompaniyaning oylik rejasi belgilanmagan'
+    planNotSet: 'Kompaniyaning oylik rejasi belgilanmagan',
+    ordersCount: 'Buyurtmalar',
+    totalCompanyOrders: 'Kompaniyaning jami buyurtmalari'
   },
   catalog: {
     tags: 'Teglar',
@@ -320,6 +329,8 @@ export const uz: Dictionary = {
     selectAll: 'Hammasini tanlash',
     clear: 'Tozalash',
     selectCompanies: 'Kompaniyalarni tanlash',
+    searchCompanies: 'Kompaniyani qidirish...',
+    noCompaniesFound: 'Kompaniyalar topilmadi',
     growth: 'O‘tgan davrga nisbatan o‘sish',
     clickToDetail: 'Batafsil ma’lumot uchun ustunni bosing',
     detailFor: 'Tafsilotlar:',

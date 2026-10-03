@@ -218,7 +218,7 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
             {(totalOrdersCount ?? fetchedTotal ?? orders.length).toLocaleString(locale)}
           </div>
           <p className="text-[10px] text-slate-400 font-medium">
-            {language === 'uz' ? 'Kompaniyaning jami buyurtmalari' : language === 'en' ? 'Total company orders' : 'Всего заказов компании'}
+            {t('dashboard.totalCompanyOrders')}
           </p>
         </div>
       </div>

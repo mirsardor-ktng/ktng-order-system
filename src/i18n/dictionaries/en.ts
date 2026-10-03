@@ -25,6 +25,11 @@ export const en: Dictionary = {
     details: 'Details',
     apply: 'Apply',
     reset: 'Reset',
+    loadMore: 'Load more',
+    previous: 'Previous',
+    next: 'Next',
+    from: 'From',
+    to: 'To',
     error: 'Error',
     success: 'Success',
     notFound: 'Not found',
@@ -108,6 +113,7 @@ export const en: Dictionary = {
   },
   orders: {
     title: 'Place Order',
+    orders: 'Orders',
     historyTitle: 'Order History',
     newOrder: 'New Order',
     draft: 'Draft',
@@ -166,6 +172,7 @@ export const en: Dictionary = {
     casesConversionHint: '1 box = 50 blocks (500 packs)',
     blocksShipped: 'Blocks Shipped',
     blocksConversionHint: '1 block = 10 packs',
+    totalOrdersCountHint: 'Total orders placed',
     activeClients: 'Active Clients',
     companiesCount: 'companies',
     madeAtLeastOneOrder: 'Placed at least 1 order',
@@ -261,7 +268,9 @@ export const en: Dictionary = {
     casesUnit: 'boxes',
     blocksShippedDesc: 'blocks (shipped orders)',
     currentMonthPlan: 'Current Month Plan',
-    planNotSet: 'Monthly company target is not set'
+    planNotSet: 'Monthly company target is not set',
+    ordersCount: 'Orders',
+    totalCompanyOrders: 'Total company orders'
   },
   catalog: {
     tags: 'Tags',
@@ -320,6 +329,8 @@ export const en: Dictionary = {
     selectAll: 'Select All',
     clear: 'Clear',
     selectCompanies: 'Select Companies',
+    searchCompanies: 'Search companies...',
+    noCompaniesFound: 'No companies found',
     growth: 'Growth vs prev. period',
     clickToDetail: 'Click on a column for details',
     detailFor: 'Details for',

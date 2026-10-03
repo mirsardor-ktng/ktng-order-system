@@ -25,6 +25,11 @@ export const ru: Dictionary = {
     details: 'Подробнее',
     apply: 'Применить',
     reset: 'Сбросить',
+    loadMore: 'Показать еще',
+    previous: 'Назад',
+    next: 'Вперед',
+    from: 'От',
+    to: 'До',
     error: 'Ошибка',
     success: 'Успешно',
     notFound: 'Не найдено',
@@ -108,6 +113,7 @@ export const ru: Dictionary = {
   },
   orders: {
     title: 'Оформление заказа',
+    orders: 'Заказы',
     historyTitle: 'История заказов',
     newOrder: 'Новый заказ',
     draft: 'Черновик',
@@ -166,6 +172,7 @@ export const ru: Dictionary = {
     casesConversionHint: '1 коробка = 50 блоков (500 пачек)',
     blocksShipped: 'Отгружено блоков',
     blocksConversionHint: '1 блок = 10 пачек',
+    totalOrdersCountHint: 'Всего оформлено заказов',
     activeClients: 'Активные клиенты',
     companiesCount: 'компаний',
     madeAtLeastOneOrder: 'Сделали хотя бы 1 заказ',
@@ -261,7 +268,9 @@ export const ru: Dictionary = {
     casesUnit: 'коробок',
     blocksShippedDesc: 'блоков (отгруженные заказы)',
     currentMonthPlan: 'План на текущий месяц',
-    planNotSet: 'План компании на месяц не установлен'
+    planNotSet: 'План компании на месяц не установлен',
+    ordersCount: 'Заказы',
+    totalCompanyOrders: 'Всего заказов компании'
   },
   catalog: {
     tags: 'Теги',
@@ -320,6 +329,8 @@ export const ru: Dictionary = {
     selectAll: 'Выбрать все',
     clear: 'Очистить',
     selectCompanies: 'Выбор компаний',
+    searchCompanies: 'Поиск компании...',
+    noCompaniesFound: 'Компании не найдены',
     growth: 'Рост к пред. периоду',
     clickToDetail: 'Нажмите на колонку для детализации',
     detailFor: 'Детализация за',

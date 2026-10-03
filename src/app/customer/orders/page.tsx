@@ -664,12 +664,12 @@ function CustomerOrdersContent() {
             {loadingMore ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
-                <span>{language === 'uz' ? 'Yuklanmoqda...' : language === 'en' ? 'Loading...' : 'Загрузка...'}</span>
+                <span>{t('common.loading')}</span>
               </>
             ) : (
               <>
                 <ChevronDown className="h-4 w-4 text-cyan-400" />
-                <span>{language === 'uz' ? 'Yana ko‘rsatish' : language === 'en' ? 'Load more' : 'Показать еще'}</span>
+                <span>{t('common.loadMore')}</span>
                 <span className="text-[10px] text-slate-500 font-normal">({orders.length} / {totalOrders})</span>
               </>
             )}

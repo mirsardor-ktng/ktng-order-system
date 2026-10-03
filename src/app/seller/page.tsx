@@ -841,7 +841,7 @@ export default function SellerDashboard() {
                 <ShoppingBag className="h-4.5 w-4.5 text-emerald-400" />
               </div>
               <span className="block mt-2 text-xl font-extrabold text-slate-100">{totalOrders.toLocaleString(locale)}</span>
-              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{language === 'uz' ? 'Jami buyurtmalar soni' : language === 'en' ? 'Total orders count' : 'Всего оформлено заказов'}</span>
+              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{t('seller.totalOrdersCountHint')}</span>
             </div>
 
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-amber-500">
@@ -905,7 +905,7 @@ export default function SellerDashboard() {
               {/* Date Filter Inputs - ALWAYS VISIBLE */}
               <div className="flex flex-wrap items-center gap-2 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0 text-xs">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Dan:' : language === 'en' ? 'From:' : 'От:'}</span>
+                  <span className="text-[10px] text-slate-400 font-medium">{t('common.from')}:</span>
                   <input
                     type="date"
                     value={draftStartDate}
@@ -914,7 +914,7 @@ export default function SellerDashboard() {
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Gacha:' : language === 'en' ? 'To:' : 'До:'}</span>
+                  <span className="text-[10px] text-slate-400 font-medium">{t('common.to')}:</span>
                   <input
                     type="date"
                     value={draftEndDate}
@@ -935,7 +935,7 @@ export default function SellerDashboard() {
                     onClick={handleResetDateFilter}
                     className="px-2 py-1 text-[10px] font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
                   >
-                    {language === 'uz' ? 'Bekor qilish' : language === 'en' ? 'Reset' : 'Сбросить'}
+                    {t('common.reset')}
                   </button>
                 )}
               </div>
@@ -1592,7 +1592,7 @@ export default function SellerDashboard() {
                 }}
                 className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
               >
-                {language === 'uz' ? 'Orqaga' : language === 'en' ? 'Previous' : 'Назад'}
+                {t('common.previous')}
               </button>
               <span className="font-bold text-slate-200 text-xs px-2">
                 {currentPage} / {totalPages}
@@ -1607,7 +1607,7 @@ export default function SellerDashboard() {
                 }}
                 className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
               >
-                {language === 'uz' ? 'Oldinga' : language === 'en' ? 'Next' : 'Вперед'}
+                {t('common.next')}
               </button>
             </div>
           </div>

@@ -25,6 +25,7 @@ import {
   Box,
   Building2,
   ChevronDown,
+  Search,
 } from "lucide-react";
 import { useTranslation } from "@/i18n/context";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -130,6 +131,18 @@ export default function AnalyticsPage() {
   const [appliedEndDate, setAppliedEndDate] = useState<string>("");
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
   const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false);
+  const [companySearch, setCompanySearch] = useState("");
+
+  const filteredCompanies = useMemo(() => {
+    if (!data?.companies) return [];
+    if (!companySearch.trim()) return data.companies;
+    const q = companySearch.toLowerCase().trim();
+    return data.companies.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.code && c.code.toLowerCase().includes(q))
+    );
+  }, [data?.companies, companySearch]);
 
   useEffect(() => {
     fetchAnalytics();
@@ -301,7 +314,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Filters Bar: Period & Multi-Company */}
-      <div className="glass-panel rounded-2xl p-4 sm:p-5 border border-white/5 flex flex-wrap items-center justify-between gap-4">
+      <div className="glass-panel relative z-30 rounded-2xl p-4 sm:p-5 border border-white/5 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           {/* Start Date */}
           <div className="flex items-center gap-2">
@@ -331,29 +344,43 @@ export default function AnalyticsPage() {
               <button
                 type="button"
                 onClick={() => setCompanyDropdownOpen((prev) => !prev)}
-                className="bg-slate-900/80 border border-slate-700/60 text-slate-200 text-xs rounded-xl px-3 py-2 flex items-center gap-2 hover:border-slate-600 transition-colors"
+                className={`bg-slate-900/90 border text-xs rounded-xl px-3 py-2 flex items-center gap-2 transition-all ${
+                  companyDropdownOpen
+                    ? "border-indigo-500 text-white shadow-glass-sm ring-1 ring-indigo-500/30"
+                    : "border-slate-700/60 text-slate-200 hover:border-slate-600"
+                }`}
               >
                 <Building2 className="h-3.5 w-3.5 text-indigo-400" />
-                <span>
+                <span className="font-medium">
                   {selectedCompanyIds.length === 0
                     ? t('analytics.allCompanies')
                     : `${selectedCompanyIds.length} ${t('seller.companiesCount')}`}
                 </span>
-                <ChevronDown className="h-3 w-3 text-slate-400" />
+                <ChevronDown className={`h-3 w-3 text-slate-400 transition-transform ${companyDropdownOpen ? "rotate-180" : ""}`} />
               </button>
 
               {companyDropdownOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setCompanyDropdownOpen(false)}
+                    className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                    onClick={() => {
+                      setCompanyDropdownOpen(false);
+                      setCompanySearch("");
+                    }}
                   />
-                  <div className="absolute left-0 top-full mt-2 w-72 max-h-80 overflow-y-auto bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-3 z-50 space-y-2">
+                  <div className="absolute left-0 top-full mt-2 w-80 sm:w-96 max-h-[28rem] overflow-hidden bg-slate-900 border border-slate-700/90 rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95)] p-3.5 z-50 flex flex-col space-y-3 ring-1 ring-white/10">
                     <div className="flex justify-between items-center pb-2 border-b border-white/5">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        {t('analytics.selectCompanies')}
-                      </span>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                          {t('analytics.selectCompanies')}
+                        </span>
+                        {selectedCompanyIds.length > 0 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400">
+                            {selectedCompanyIds.length} / {data.companies.length}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={selectAllCompanies}
@@ -371,29 +398,64 @@ export default function AnalyticsPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="space-y-1.5 pt-1">
-                      {data.companies.map((c) => {
-                        const isSelected = selectedCompanyIds.includes(c.id);
-                        return (
-                          <label
-                            key={c.id}
-                            className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-white/5 cursor-pointer text-xs text-slate-200"
+
+                    {/* Search box inside dropdown */}
+                    {data.companies.length > 5 && (
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={companySearch}
+                          onChange={(e) => setCompanySearch(e.target.value)}
+                          placeholder={t('analytics.searchCompanies')}
+                          className="w-full bg-slate-950/70 border border-slate-800 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500/70"
+                        />
+                        {companySearch && (
+                          <button
+                            type="button"
+                            onClick={() => setCompanySearch("")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
                           >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleCompany(c.id)}
-                              className="rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-0 focus:ring-offset-0"
-                            />
-                            <span className="truncate font-medium">{c.name}</span>
-                            {c.code && (
-                              <span className="ml-auto text-[10px] text-slate-500 font-mono">
-                                {c.code}
-                              </span>
-                            )}
-                          </label>
-                        );
-                      })}
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Companies List */}
+                    <div className="overflow-y-auto max-h-56 space-y-1 pr-1">
+                      {filteredCompanies.length === 0 ? (
+                        <div className="py-4 text-center text-xs text-slate-500">
+                          {t('analytics.noCompaniesFound')}
+                        </div>
+                      ) : (
+                        filteredCompanies.map((c) => {
+                          const isSelected = selectedCompanyIds.includes(c.id);
+                          return (
+                            <label
+                              key={c.id}
+                              className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs ${
+                                isSelected
+                                  ? "bg-indigo-600/15 border border-indigo-500/30 text-white"
+                                  : "hover:bg-slate-800/80 text-slate-300 border border-transparent"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleCompany(c.id)}
+                                className="rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-0 focus:ring-offset-0"
+                              />
+                              <span className="truncate font-medium">{c.name}</span>
+                              {c.code && (
+                                <span className="ml-auto text-[10px] text-slate-400 font-mono bg-slate-800/80 px-1.5 py-0.5 rounded">
+                                  {c.code}
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </>
@@ -423,7 +485,7 @@ export default function AnalyticsPage() {
 
       {/* ============= CUSTOMER INSIGHTS SECTION ============= */}
       {isCustomer && insights && (
-        <div className="space-y-6">
+        <div className="space-y-6 relative z-10">
           {/* Customer insights cards */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {/* Average Order */}
@@ -600,7 +662,7 @@ export default function AnalyticsPage() {
 
       {/* ============= ADMIN / SELLER / MANAGER SECTION ============= */}
       {/* KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 relative z-10">
         <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-indigo-500">
           <div className="flex justify-between items-center text-slate-400">
             <span className="text-[10px] font-bold uppercase tracking-wider">
