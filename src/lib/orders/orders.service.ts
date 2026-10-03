@@ -1148,9 +1148,9 @@ export class OrdersService {
           totalBlocks,
           totalCases,
           totalPrice,
-          fileUrl: orderFileUrl,
-          fileId,
-          fileName,
+          fileUrl: null,
+          fileId: null,
+          fileName: null,
           createdAt: createdAtUpdate,
           updatedAt: now,
           items: {
