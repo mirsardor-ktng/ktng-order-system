@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Clock, DollarSign, PackageCheck, Target, TrendingUp, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Clock, DollarSign, PackageCheck, Target, TrendingUp, CheckCircle2, AlertCircle, ShoppingBag } from 'lucide-react';
 import { useTranslation } from '@/i18n/context';
 
 interface OrderItem {
@@ -26,13 +26,15 @@ interface UserCompany {
 interface CustomerKpiDashboardProps {
   orders?: OrderItem[];
   company?: UserCompany | null;
+  totalOrdersCount?: number;
   className?: string;
 }
 
-export default function CustomerKpiDashboard({ orders: propOrders, company: propCompany, className = '' }: CustomerKpiDashboardProps) {
+export default function CustomerKpiDashboard({ orders: propOrders, company: propCompany, totalOrdersCount, className = '' }: CustomerKpiDashboardProps) {
   const { t, language } = useTranslation();
   const [orders, setOrders] = useState<OrderItem[]>(propOrders || []);
   const [company, setCompany] = useState<UserCompany | null>(propCompany || null);
+  const [fetchedTotal, setFetchedTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(!propOrders || !propCompany);
 
   useEffect(() => {
@@ -62,6 +64,9 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
           const ordersData = await ordersRes.json();
           if (isMounted) {
             setOrders(Array.isArray(ordersData) ? ordersData : (ordersData?.orders || []));
+            if (ordersData?.pagination?.total !== undefined) {
+              setFetchedTotal(ordersData.pagination.total);
+            }
           }
         }
       } catch (err) {
@@ -199,21 +204,21 @@ export default function CustomerKpiDashboard({ orders: propOrders, company: prop
         </div>
       </div>
 
-      {/* ── CARD 3: Общее отгруженное количество ── */}
+      {/* ── CARD 3: Количество заказов ── */}
       <div className="glass-panel relative overflow-hidden rounded-2xl p-5 border-l-4 border-l-indigo-500 transition-all hover:bg-white/[0.04]">
         <div className="flex justify-between items-center text-slate-400">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">{t('dashboard.shippedProducts')}</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">{t('orders.orders')}</span>
           <div className="h-7 w-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
-            <PackageCheck className="h-4 w-4" />
+            <ShoppingBag className="h-4 w-4" />
           </div>
         </div>
 
         <div className="mt-2.5 space-y-1">
           <div className="text-base sm:text-lg font-extrabold text-slate-100 truncate">
-            {stats.totalShippedCases.toLocaleString(locale)} <span className="text-xs font-semibold text-slate-400">{t('dashboard.casesUnit')}</span>
+            {(totalOrdersCount ?? fetchedTotal ?? orders.length).toLocaleString(locale)}
           </div>
           <p className="text-[10px] text-slate-400 font-medium">
-            {stats.totalShippedBlocks.toLocaleString(locale)} {t('dashboard.blocksShippedDesc')}
+            {t('dashboard.totalCompanyOrders')}
           </p>
         </div>
       </div>

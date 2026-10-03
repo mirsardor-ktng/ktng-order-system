@@ -24,6 +24,11 @@ export interface CommonTranslations {
   details: string;
   apply: string;
   reset: string;
+  loadMore: string;
+  previous: string;
+  next: string;
+  from: string;
+  to: string;
   error: string;
   success: string;
   notFound: string;
@@ -111,6 +116,7 @@ export interface ProductsTranslations {
 
 export interface OrdersTranslations {
   title: string;
+  orders: string;
   historyTitle: string;
   newOrder: string;
   draft: string;
@@ -186,6 +192,8 @@ export interface DashboardTranslations {
   blocksShippedDesc: string;
   currentMonthPlan: string;
   planNotSet: string;
+  ordersCount: string;
+  totalCompanyOrders: string;
 }
 
 export interface CatalogTranslations {
@@ -236,6 +244,19 @@ export interface AnalyticsTranslations {
   avgSkus: string;
   uniqueSkus: string;
   monthlyDynamics: string;
+  dailyDynamics: string;
+  period: string;
+  startDate: string;
+  endDate: string;
+  apply: string;
+  reset: string;
+  allCompanies: string;
+  selectAll: string;
+  clear: string;
+  selectCompanies: string;
+  searchCompanies: string;
+  noCompaniesFound: string;
+  growth: string;
   clickToDetail: string;
   detailFor: string;
   ordersHistoryFor: string;
@@ -324,6 +345,7 @@ export interface SellerTranslations {
   casesConversionHint: string;
   blocksShipped: string;
   blocksConversionHint: string;
+  totalOrdersCountHint: string;
   activeClients: string;
   companiesCount: string;
   madeAtLeastOneOrder: string;

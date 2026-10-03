@@ -8,7 +8,7 @@ import {
   BarChart3, Edit, Plus, Trash2, Check, X, Shield, RefreshCw, FileSpreadsheet, Upload, CheckCircle2, Calendar, XCircle,
   ChevronDown, ChevronUp
 } from 'lucide-react';
-import { breakdownPacks } from '@/lib/conversion';
+import { breakdownPacks, formatCaseQuantity } from '@/lib/conversion';
 import { getTashkentTodayString, getTashkentWeekAgoString } from '@/lib/date-utils';
 import { useTranslation } from '@/i18n/context';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
@@ -508,10 +508,11 @@ export default function SellerDashboard() {
         body: JSON.stringify({ orderId, status: newStatus })
       });
       if (res.ok) {
-        showToast(t('seller.statusUpdated', { status: getStatusLabel(newStatus) }));
-        loadAllOrders();
+        const data = await res.json().catch(() => ({}));
+        showToast(data.message || t('seller.statusUpdated', { status: getStatusLabel(newStatus) }));
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus as any, ...(data.order ? { status: data.order.status, updatedAt: data.order.updatedAt } : {}) } : o));
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.status === 401 && data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
           router.push('/login?reason=session_expired');
           return;
@@ -836,11 +837,11 @@ export default function SellerDashboard() {
 
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-emerald-500">
               <div className="flex justify-between items-center text-slate-400">
-                <span className="text-[10px] font-bold uppercase tracking-wider">{t('seller.blocksShipped')}</span>
-                <Layers className="h-4.5 w-4.5 text-emerald-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wider">{t('orders.orders')}</span>
+                <ShoppingBag className="h-4.5 w-4.5 text-emerald-400" />
               </div>
-              <span className="block mt-2 text-xl font-extrabold text-slate-100">{metrics.blocks} {t('units.blocksShort')}</span>
-              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{t('seller.blocksConversionHint')}</span>
+              <span className="block mt-2 text-xl font-extrabold text-slate-100">{totalOrders.toLocaleString(locale)}</span>
+              <span className="block mt-1 text-[9px] text-slate-500 font-semibold">{t('seller.totalOrdersCountHint')}</span>
             </div>
 
             <div className="glass-panel rounded-2xl p-5 border-l-4 border-l-amber-500">
@@ -904,7 +905,7 @@ export default function SellerDashboard() {
               {/* Date Filter Inputs - ALWAYS VISIBLE */}
               <div className="flex flex-wrap items-center gap-2 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0 text-xs">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Dan:' : language === 'en' ? 'From:' : 'От:'}</span>
+                  <span className="text-[10px] text-slate-400 font-medium">{t('common.from')}:</span>
                   <input
                     type="date"
                     value={draftStartDate}
@@ -913,7 +914,7 @@ export default function SellerDashboard() {
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-400 font-medium">{language === 'uz' ? 'Gacha:' : language === 'en' ? 'To:' : 'До:'}</span>
+                  <span className="text-[10px] text-slate-400 font-medium">{t('common.to')}:</span>
                   <input
                     type="date"
                     value={draftEndDate}
@@ -934,7 +935,7 @@ export default function SellerDashboard() {
                     onClick={handleResetDateFilter}
                     className="px-2 py-1 text-[10px] font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
                   >
-                    {language === 'uz' ? 'Bekor qilish' : language === 'en' ? 'Reset' : 'Сбросить'}
+                    {t('common.reset')}
                   </button>
                 )}
               </div>
@@ -970,14 +971,12 @@ export default function SellerDashboard() {
                   const isEditable = order.status === 'DRAFT' || order.status === 'NEW';
                   const isExpanded = expandedOrders.has(order.id);
 
-                  let orderBoxes = 0;
-                  let orderBlocks = 0;
+                  let totalOrderPacks = order.totalPacks || 0;
                   const uniqueSkus = new Set<string>();
 
                   order.items?.forEach((item) => {
                     const packs = item.quantityPacks || 0;
-                    orderBoxes += Math.floor(packs / 500);
-                    orderBlocks += Math.floor((packs % 500) / 10);
+                    if (!order.totalPacks) totalOrderPacks += packs;
 
                     if (item.skuAllocations && item.skuAllocations.length > 0) {
                       item.skuAllocations.forEach((a: any) => {
@@ -1009,7 +1008,7 @@ export default function SellerDashboard() {
                         <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs">
                           <div className="flex items-center gap-2">
                             <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-semibold text-[11px]">
-                              {orderBoxes} {t('units.casesShort')} · {orderBlocks} {t('units.blocksShort')}
+                              {formatCaseQuantity(totalOrderPacks)} {t('units.casesShort')}
                             </span>
                             <span className="px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 font-semibold text-[11px]">
                               {uniqueSkuCount} SKU
@@ -1158,7 +1157,7 @@ export default function SellerDashboard() {
                       {/* Actions & Summary breakdown footer */}
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-3 border-t border-white/5 w-full">
                         <div className="text-[10px] text-slate-400 font-semibold">
-                          {t('seller.volume')}: <span className="text-slate-200 font-bold">{orderBlocks} {t('units.blocks')}</span> / <span className="text-slate-200 font-bold">{orderBoxes} {t('units.cases')}</span>
+                          {t('seller.volume')}: <span className="text-slate-200 font-bold">{formatCaseQuantity(totalOrderPacks)} {t('units.cases')}</span>
                           <span className="ml-3 text-slate-500">({date})</span>
                         </div>
 
@@ -1593,7 +1592,7 @@ export default function SellerDashboard() {
                 }}
                 className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
               >
-                {language === 'uz' ? 'Orqaga' : language === 'en' ? 'Previous' : 'Назад'}
+                {t('common.previous')}
               </button>
               <span className="font-bold text-slate-200 text-xs px-2">
                 {currentPage} / {totalPages}
@@ -1608,7 +1607,7 @@ export default function SellerDashboard() {
                 }}
                 className="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-xs font-semibold text-slate-300"
               >
-                {language === 'uz' ? 'Oldinga' : language === 'en' ? 'Next' : 'Вперед'}
+                {t('common.next')}
               </button>
             </div>
           </div>

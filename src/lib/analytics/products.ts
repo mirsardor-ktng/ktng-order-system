@@ -10,10 +10,14 @@ export interface ProductAnalyticsItem {
   growth: number;
 }
 
-export function calculateProductAnalytics(orders: any[], selectedMonthKey?: string | null): ProductAnalyticsItem[] {
+export function calculateProductAnalytics(
+  orders: any[],
+  previousOrders?: any[],
+  selectedMonthKey?: string | null
+): ProductAnalyticsItem[] {
   // If month is selected, compute for that month & MoM growth compared to previous month
   const targetOrders = selectedMonthKey 
-    ? orders.filter(o => getMonthKey(o.createdAt) === selectedMonthKey)
+    ? orders.filter(o => getMonthKey(new Date(o.createdAt)) === selectedMonthKey)
     : orders;
 
   const totalRevenue = targetOrders.reduce((sum, o) => sum + o.totalPrice, 0);
@@ -44,17 +48,24 @@ export function calculateProductAnalytics(orders: any[], selectedMonthKey?: stri
     }
   }
 
-  // If a specific month is selected, calculate growth from the previous month
-  let previousMonthMap = new Map<string, number>();
-  if (selectedMonthKey) {
+  // Calculate revenue from previous comparison period
+  let previousMap = new Map<string, number>();
+  if (previousOrders && previousOrders.length > 0) {
+    for (const order of previousOrders) {
+      for (const item of order.items) {
+        const productId = item.productId;
+        const itemTotalPrice = item.itemTotalPrice ?? (item.quantityPacks * item.price);
+        previousMap.set(productId, (previousMap.get(productId) || 0) + itemTotalPrice);
+      }
+    }
+  } else if (selectedMonthKey) {
     const prevMonthKey = getPreviousMonthKey(selectedMonthKey);
-    const prevOrders = orders.filter(o => getMonthKey(o.createdAt) === prevMonthKey);
-    
+    const prevOrders = orders.filter(o => getMonthKey(new Date(o.createdAt)) === prevMonthKey);
     for (const order of prevOrders) {
       for (const item of order.items) {
         const productId = item.productId;
         const itemTotalPrice = item.itemTotalPrice ?? (item.quantityPacks * item.price);
-        previousMonthMap.set(productId, (previousMonthMap.get(productId) || 0) + itemTotalPrice);
+        previousMap.set(productId, (previousMap.get(productId) || 0) + itemTotalPrice);
       }
     }
   }
@@ -64,9 +75,9 @@ export function calculateProductAnalytics(orders: any[], selectedMonthKey?: stri
   for (const [productId, p] of productMap.entries()) {
     const share = totalRevenue > 0 ? Math.round((p.revenue / totalRevenue) * 100) : 0;
     
-    let growth = 0;
-    if (selectedMonthKey) {
-      const prevRevenue = previousMonthMap.get(productId) || 0;
+    let growth: number | null = null;
+    if (previousOrders !== undefined || selectedMonthKey) {
+      const prevRevenue = previousMap.get(productId) || 0;
       growth = calculatePercentageChange(p.revenue, prevRevenue);
     }
 
@@ -77,7 +88,7 @@ export function calculateProductAnalytics(orders: any[], selectedMonthKey?: stri
       cases: Math.round(p.cases * 100) / 100,
       revenue: p.revenue,
       share,
-      growth
+      growth: growth ?? 0
     });
   }
 

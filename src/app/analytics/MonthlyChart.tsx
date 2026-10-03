@@ -72,7 +72,7 @@ export default function MonthlyChart({ data, chartType, onMonthSelect }: Monthly
           <Bar
             dataKey={chartType}
             fill={barColor}
-            barSize={data.length > 12 ? 30 : 50}
+            barSize={data.length > 20 ? 14 : data.length > 12 ? 28 : 50}
             radius={[6, 6, 0, 0]}
           />
         </BarChart>

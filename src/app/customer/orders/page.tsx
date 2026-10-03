@@ -2,8 +2,8 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare } from 'lucide-react';
-import { breakdownPacks } from '@/lib/conversion';
+import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { breakdownPacks, formatCaseQuantity } from '@/lib/conversion';
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 import { useTranslation } from '@/i18n/context';
 
@@ -81,6 +81,23 @@ function CustomerOrdersContent() {
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+
+  const toggleOrderExpand = (orderId: string) => {
+    setExpandedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
 
   const [repetitionLoading, setRepetitionLoading] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -139,12 +156,51 @@ function CustomerOrdersContent() {
     }
   };
 
-  const loadOrders = async () => {
+  const loadOrders = async (targetPage: number = 1, append: boolean = false) => {
     try {
-      const res = await fetch('/api/orders');
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+
+      const params = new URLSearchParams();
+      params.set('page', String(targetPage));
+      params.set('pageSize', '25');
+
+      if (filterMonth && /^\d{4}-\d{2}$/.test(filterMonth)) {
+        const [y, m] = filterMonth.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        params.set('startDate', `${filterMonth}-01`);
+        params.set('endDate', `${filterMonth}-${String(lastDay).padStart(2, '0')}`);
+      }
+
+      const res = await fetch(`/api/orders?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setOrders(Array.isArray(data) ? data : (data.orders || []));
+        const incomingOrders: Order[] = Array.isArray(data) ? data : (data.orders || []);
+        const pagination = data.pagination;
+
+        if (append) {
+          setOrders((prev) => {
+            const existingIds = new Set(prev.map((o) => o.id));
+            const uniqueIncoming = incomingOrders.filter((o) => !existingIds.has(o.id));
+            return [...prev, ...uniqueIncoming];
+          });
+        } else {
+          setOrders(incomingOrders);
+          setExpandedOrders(new Set());
+        }
+
+        setPage(targetPage);
+
+        if (pagination) {
+          setTotalOrders(pagination.total);
+          setHasMore(targetPage < pagination.totalPages);
+        } else {
+          setTotalOrders(incomingOrders.length);
+          setHasMore(false);
+        }
       } else if (res.status === 401) {
         const data = await res.json().catch(() => ({}));
         if (data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
@@ -155,12 +211,18 @@ function CustomerOrdersContent() {
       console.error('Failed to load orders history', err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    loadOrders(1, false);
+  }, [filterMonth]);
+
+  const handleLoadMore = () => {
+    if (loadingMore || !hasMore) return;
+    loadOrders(page + 1, true);
+  };
 
   // Filter orders by month if query param is set
   const filteredOrders = filterMonth
@@ -300,7 +362,7 @@ function CustomerOrdersContent() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── CUSTOMER KPI DASHBOARD ── */}
-      <CustomerKpiDashboard orders={orders} />
+      <CustomerKpiDashboard orders={orders} totalOrdersCount={totalOrders} />
 
       <div className="flex items-center gap-3 justify-between pt-2">
         <div className="flex items-center gap-3">
@@ -349,23 +411,78 @@ function CustomerOrdersContent() {
               minute: '2-digit'
             });
 
+            const isExpanded = expandedOrders.has(order.id);
+
+            let totalOrderPacks = order.totalPacks || 0;
+            const uniqueSkus = new Set<string>();
+
+            order.items?.forEach((item) => {
+              const packs = item.quantityPacks || 0;
+              if (!order.totalPacks) totalOrderPacks += packs;
+
+              if (item.skuAllocations && item.skuAllocations.length > 0) {
+                item.skuAllocations.forEach((a: any) => {
+                  if (a.sku) uniqueSkus.add(a.sku);
+                });
+              } else if (item.skuSnapshot || item.product?.sku) {
+                uniqueSkus.add(item.skuSnapshot || item.product?.sku || '');
+              }
+            });
+            const uniqueSkuCount = uniqueSkus.size;
+
             return (
-              <div key={order.id} className="glass-panel rounded-2xl p-5 sm:p-6 flex flex-col justify-between gap-4 border border-white/5">
-                {/* Order Header info */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-white/5">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
+              <div key={order.id} className="glass-panel rounded-2xl border border-white/5 hover:border-white/10 transition-all overflow-hidden">
+                {/* Collapsible Header */}
+                <div
+                  onClick={() => toggleOrderExpand(order.id)}
+                  className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer select-none hover:bg-white/[0.02] transition-colors"
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <span className="font-extrabold text-sm sm:text-base text-slate-200">{order.orderNumber}</span>
                       {renderStatusBadge(order.status)}
                     </div>
-                    <span className="block text-[10px] text-slate-400 mt-1 font-semibold">{t('orders.orderDate')}: {date}</span>
                   </div>
 
-                  <div className="text-left sm:text-right">
-                    <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider">{t('orders.totalSum')}:</span>
-                    <span className="block font-extrabold text-base text-emerald-400 leading-none mt-1">{order.totalPrice.toLocaleString()} so'm</span>
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-semibold text-[11px]">
+                        {formatCaseQuantity(totalOrderPacks)} {t('units.casesShort')}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 font-semibold text-[11px]">
+                        {uniqueSkuCount} SKU
+                      </span>
+                    </div>
+
+                    <span className="font-extrabold text-sm sm:text-base text-emerald-400">
+                      {order.totalPrice.toLocaleString(locale)} so'm
+                    </span>
+
+                    <span className="text-[11px] text-slate-400">
+                      {date}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleOrderExpand(order.id);
+                      }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+                      title={isExpanded ? 'Свернуть' : 'Развернуть'}
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </button>
                   </div>
                 </div>
+
+                {/* Expanded Content */}
+                {isExpanded && (
+                  <div className="border-t border-white/5 p-5 sm:p-6 pt-4 flex flex-col gap-4 animate-fade-in">
 
                 {/* Items Breakdown list */}
                 <div className="py-2">
@@ -489,7 +606,7 @@ function CustomerOrdersContent() {
                 {/* Bottom Actions panel */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-4 border-t border-white/5 w-full">
                   <div className="text-xs text-slate-400 font-semibold">
-                    {t('common.total')}: <span className="text-slate-200 font-bold">{order.totalBlocks} {t('units.blocksShort')}</span> / <span className="text-slate-200 font-bold">{order.totalCases} {t('units.casesShort')}</span>
+                    {t('common.total')}: <span className="text-slate-200 font-bold">{formatCaseQuantity(totalOrderPacks)} {t('units.cases')}</span>
                   </div>
 
                   <div className="flex gap-2.5 w-full sm:w-auto">
@@ -529,10 +646,34 @@ function CustomerOrdersContent() {
                     )}
                   </div>
                 </div>
-
               </div>
-            );
+            )}
+          </div>
+        );
           })}
+        </div>
+      )}
+
+      {hasMore && (
+        <div className="flex justify-center pt-6 pb-2">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="btn-secondary px-6 py-3 text-xs font-semibold flex items-center gap-2 rounded-xl transition-all"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+                <span>{t('common.loading')}</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-4 w-4 text-cyan-400" />
+                <span>{t('common.loadMore')}</span>
+                <span className="text-[10px] text-slate-500 font-normal">({orders.length} / {totalOrders})</span>
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>

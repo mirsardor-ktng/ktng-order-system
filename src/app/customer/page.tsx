@@ -277,10 +277,11 @@ export default function CustomerCatalog() {
 
         if (urlDraftId) {
           setLoadingDraft(true);
-          const res = await fetch('/api/orders');
+          const res = await fetch('/api/orders?status=DRAFT');
           if (res.ok) {
-            const orders = await res.json();
-            const draftToEdit = orders.find((o: any) => o.id === urlDraftId && o.status === 'DRAFT');
+            const data = await res.json();
+            const ordersList = Array.isArray(data) ? data : (data.orders || []);
+            const draftToEdit = ordersList.find((o: any) => o.id === urlDraftId && o.status === 'DRAFT');
             if (draftToEdit) {
               const draftCart: { [key: string]: number } = {};
               draftToEdit.items.forEach((item: any) => {
