@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare } from 'lucide-react';
+import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare, ChevronDown } from 'lucide-react';
 import { breakdownPacks } from '@/lib/conversion';
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 import { useTranslation } from '@/i18n/context';
@@ -81,6 +81,10 @@ function CustomerOrdersContent() {
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalOrders, setTotalOrders] = useState(0);
 
   const [repetitionLoading, setRepetitionLoading] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -139,12 +143,50 @@ function CustomerOrdersContent() {
     }
   };
 
-  const loadOrders = async () => {
+  const loadOrders = async (targetPage: number = 1, append: boolean = false) => {
     try {
-      const res = await fetch('/api/orders');
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+
+      const params = new URLSearchParams();
+      params.set('page', String(targetPage));
+      params.set('pageSize', '25');
+
+      if (filterMonth && /^\d{4}-\d{2}$/.test(filterMonth)) {
+        const [y, m] = filterMonth.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        params.set('startDate', `${filterMonth}-01`);
+        params.set('endDate', `${filterMonth}-${String(lastDay).padStart(2, '0')}`);
+      }
+
+      const res = await fetch(`/api/orders?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setOrders(Array.isArray(data) ? data : (data.orders || []));
+        const incomingOrders: Order[] = Array.isArray(data) ? data : (data.orders || []);
+        const pagination = data.pagination;
+
+        if (append) {
+          setOrders((prev) => {
+            const existingIds = new Set(prev.map((o) => o.id));
+            const uniqueIncoming = incomingOrders.filter((o) => !existingIds.has(o.id));
+            return [...prev, ...uniqueIncoming];
+          });
+        } else {
+          setOrders(incomingOrders);
+        }
+
+        setPage(targetPage);
+
+        if (pagination) {
+          setTotalOrders(pagination.total);
+          setHasMore(targetPage < pagination.totalPages);
+        } else {
+          setTotalOrders(incomingOrders.length);
+          setHasMore(false);
+        }
       } else if (res.status === 401) {
         const data = await res.json().catch(() => ({}));
         if (data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
@@ -155,12 +197,18 @@ function CustomerOrdersContent() {
       console.error('Failed to load orders history', err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    loadOrders(1, false);
+  }, [filterMonth]);
+
+  const handleLoadMore = () => {
+    if (loadingMore || !hasMore) return;
+    loadOrders(page + 1, true);
+  };
 
   // Filter orders by month if query param is set
   const filteredOrders = filterMonth
@@ -533,6 +581,29 @@ function CustomerOrdersContent() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {hasMore && (
+        <div className="flex justify-center pt-6 pb-2">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="btn-secondary px-6 py-3 text-xs font-semibold flex items-center gap-2 rounded-xl transition-all"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+                <span>{language === 'uz' ? 'Yuklanmoqda...' : language === 'en' ? 'Loading...' : 'Загрузка...'}</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-4 w-4 text-cyan-400" />
+                <span>{language === 'uz' ? 'Yana ko‘rsatish' : language === 'en' ? 'Load more' : 'Показать еще'}</span>
+                <span className="text-[10px] text-slate-500 font-normal">({orders.length} / {totalOrders})</span>
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>

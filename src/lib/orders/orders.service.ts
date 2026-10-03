@@ -210,6 +210,7 @@ export class OrdersService {
         whereClause.companyId = session.companyId;
         // DRAFT orders: if a company customer is viewing, only their own DRAFTs are visible
         if (status === 'DRAFT') {
+          whereClause.status = 'DRAFT';
           whereClause.OR = [
             { createdByUserId: session.userId },
             { customerId: session.userId }
@@ -220,12 +221,14 @@ export class OrdersService {
             { createdByUserId: session.userId },
             { customerId: session.userId }
           ];
+        } else {
+          whereClause.status = status;
         }
       } else {
         whereClause.customerId = session.userId;
-      }
-      if (status && status !== 'DRAFT') {
-        whereClause.status = status;
+        if (status) {
+          whereClause.status = status;
+        }
       }
     } else {
       // Manager / Seller with orders:view_all

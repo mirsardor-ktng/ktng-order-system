@@ -508,10 +508,11 @@ export default function SellerDashboard() {
         body: JSON.stringify({ orderId, status: newStatus })
       });
       if (res.ok) {
-        showToast(t('seller.statusUpdated', { status: getStatusLabel(newStatus) }));
-        loadAllOrders();
+        const data = await res.json().catch(() => ({}));
+        showToast(data.message || t('seller.statusUpdated', { status: getStatusLabel(newStatus) }));
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus as any, ...(data.order ? { status: data.order.status, updatedAt: data.order.updatedAt } : {}) } : o));
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.status === 401 && data.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
           router.push('/login?reason=session_expired');
           return;
