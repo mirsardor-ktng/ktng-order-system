@@ -236,6 +236,17 @@ export interface AnalyticsTranslations {
   avgSkus: string;
   uniqueSkus: string;
   monthlyDynamics: string;
+  dailyDynamics: string;
+  period: string;
+  startDate: string;
+  endDate: string;
+  apply: string;
+  reset: string;
+  allCompanies: string;
+  selectAll: string;
+  clear: string;
+  selectCompanies: string;
+  growth: string;
   clickToDetail: string;
   detailFor: string;
   ordersHistoryFor: string;

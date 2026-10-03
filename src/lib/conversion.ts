@@ -142,3 +142,15 @@ export function breakdownPacks(
     label: parts.length > 0 ? parts.join(' / ') : `0 ${labels.blocks}`
   };
 }
+
+/**
+ * Format total packs as single case quantity with decimal part.
+ * Rule: 1 case = 500 packs.
+ * Integer values (e.g. 1.0, 2.0) are rendered without decimal places ("1", "2").
+ * Fractional values (e.g. 1.1, 1.5, 2.5, 0.5) keep their decimal portion.
+ */
+export function formatCaseQuantity(packs: number): string {
+  if (!packs || isNaN(packs) || packs <= 0) return '0';
+  const cases = packs / PACKS_PER_CASE;
+  return Number.isInteger(cases) ? cases.toString() : parseFloat(cases.toFixed(2)).toString();
+}

@@ -12,9 +12,49 @@ export function getPreviousMonthKey(monthKey: string): string {
   return `${year}-${String(month - 1).padStart(2, '0')}`;
 }
 
-export function calculatePercentageChange(current: number, previous: number): number {
+/**
+ * Calculates the previous comparison period of the exact same length in calendar days.
+ * Formula from Phase 12:
+ * periodLength = calendar days inclusive
+ * previousEnd = currentStart - 1 day
+ * previousStart = previousEnd - (periodLength - 1) days
+ */
+export function calculateComparisonPeriod(startStr: string, endStr: string): {
+  prevStartStr: string;
+  prevEndStr: string;
+  periodLength: number;
+} {
+  const [sYear, sMonth, sDay] = startStr.split('-').map(Number);
+  const [eYear, eMonth, eDay] = endStr.split('-').map(Number);
+
+  const startUtc = Date.UTC(sYear, sMonth - 1, sDay);
+  const endUtc = Date.UTC(eYear, eMonth - 1, eDay);
+
+  const periodLength = Math.max(1, Math.round((endUtc - startUtc) / (1000 * 60 * 60 * 24)) + 1);
+
+  // previousEnd = currentStart - 1 day
+  const prevEndUtc = startUtc - (1000 * 60 * 60 * 24);
+  // previousStart = previousEnd - (periodLength - 1) days
+  const prevStartUtc = prevEndUtc - ((periodLength - 1) * 1000 * 60 * 60 * 24);
+
+  const prevEndDate = new Date(prevEndUtc);
+  const prevStartDate = new Date(prevStartUtc);
+
+  const prevEndStr = prevEndDate.toISOString().split('T')[0];
+  const prevStartStr = prevStartDate.toISOString().split('T')[0];
+
+  return {
+    prevStartStr,
+    prevEndStr,
+    previousStart: prevStartStr,
+    previousEnd: prevEndStr,
+    periodLength,
+  };
+}
+
+export function calculatePercentageChange(current: number, previous: number): number | null {
   if (previous === 0) {
-    return current > 0 ? 100 : 0;
+    return null; // Return null to safely indicate N/A without NaN or Infinity
   }
   return Math.round(((current - previous) / previous) * 100);
 }

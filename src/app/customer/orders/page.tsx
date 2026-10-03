@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
-import { breakdownPacks } from '@/lib/conversion';
+import { breakdownPacks, formatCaseQuantity } from '@/lib/conversion';
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 import { useTranslation } from '@/i18n/context';
 
@@ -362,7 +362,7 @@ function CustomerOrdersContent() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── CUSTOMER KPI DASHBOARD ── */}
-      <CustomerKpiDashboard orders={orders} />
+      <CustomerKpiDashboard orders={orders} totalOrdersCount={totalOrders} />
 
       <div className="flex items-center gap-3 justify-between pt-2">
         <div className="flex items-center gap-3">
@@ -413,14 +413,12 @@ function CustomerOrdersContent() {
 
             const isExpanded = expandedOrders.has(order.id);
 
-            let orderBoxes = 0;
-            let orderBlocks = 0;
+            let totalOrderPacks = order.totalPacks || 0;
             const uniqueSkus = new Set<string>();
 
             order.items?.forEach((item) => {
               const packs = item.quantityPacks || 0;
-              orderBoxes += Math.floor(packs / 500);
-              orderBlocks += Math.floor((packs % 500) / 10);
+              if (!order.totalPacks) totalOrderPacks += packs;
 
               if (item.skuAllocations && item.skuAllocations.length > 0) {
                 item.skuAllocations.forEach((a: any) => {
@@ -449,7 +447,7 @@ function CustomerOrdersContent() {
                   <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs">
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-semibold text-[11px]">
-                        {orderBoxes} {t('units.casesShort')} · {orderBlocks} {t('units.blocksShort')}
+                        {formatCaseQuantity(totalOrderPacks)} {t('units.casesShort')}
                       </span>
                       <span className="px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 font-semibold text-[11px]">
                         {uniqueSkuCount} SKU
@@ -608,7 +606,7 @@ function CustomerOrdersContent() {
                 {/* Bottom Actions panel */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-4 border-t border-white/5 w-full">
                   <div className="text-xs text-slate-400 font-semibold">
-                    {t('common.total')}: <span className="text-slate-200 font-bold">{order.totalBlocks} {t('units.blocksShort')}</span> / <span className="text-slate-200 font-bold">{order.totalCases} {t('units.casesShort')}</span>
+                    {t('common.total')}: <span className="text-slate-200 font-bold">{formatCaseQuantity(totalOrderPacks)} {t('units.cases')}</span>
                   </div>
 
                   <div className="flex gap-2.5 w-full sm:w-auto">
