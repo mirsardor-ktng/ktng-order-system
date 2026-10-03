@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
+import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
+import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
 export async function GET(req: NextRequest) {
   try {
@@ -52,6 +54,9 @@ export async function POST(req: NextRequest) {
     data: { displayName: displayName.trim(), isActive },
     include: { skus: true }
   });
+
+  invalidateOrderCalculationConfig();
+  ProductGroupService.invalidateCatalogCache();
 
   return NextResponse.json(group, { status: 201 });
 }

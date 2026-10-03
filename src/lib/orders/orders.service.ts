@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import path from 'path';
 import fs from 'fs';
 import prisma from '../db';
+import { Prisma } from '@prisma/client';
 import { normalizePacks } from '../conversion';
 import { generateExcelOrder } from '../excel';
 import { storageService } from '../storage/storage.service';
@@ -13,6 +14,139 @@ import { JWTPayload, hasPermission } from '../auth';
 import { getTashkentStartOfDay, getTashkentStartOfNextDay } from '../date-utils';
 
 export class OrdersService {
+  /**
+   * Atomically decrements stock for multiple products in a single SQL roundtrip.
+   * Throws error with product name if any product has insufficient stock.
+   */
+  static async batchDeductStock(
+    tx: any,
+    stockDecrements: Map<string, number>,
+    productMap?: Map<string, any>
+  ): Promise<void> {
+    const entries = Array.from(stockDecrements.entries()).filter(([_, packs]) => packs > 0);
+    if (entries.length === 0) return;
+
+    const valueClauses = entries.map(([id, needed]) => Prisma.sql`(${id}::text, ${needed}::integer)`);
+    const updatedRows = await tx.$queryRaw<Array<{ id: string }>>`
+      UPDATE "Product" AS p
+      SET "stockPacks" = p."stockPacks" - v.needed
+      FROM (VALUES ${Prisma.join(valueClauses)}) AS v(id, needed)
+      WHERE p.id = v.id AND p."stockPacks" >= v.needed
+      RETURNING p.id
+    `;
+
+    if (updatedRows.length !== entries.length) {
+      const updatedSet = new Set(updatedRows.map(r => r.id));
+      const failedEntry = entries.find(([id]) => !updatedSet.has(id));
+      const pName = (failedEntry && productMap?.get(failedEntry[0])?.name) || 'неизвестно';
+      throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
+    }
+  }
+
+  /**
+   * Atomically restores stock for multiple products in a single SQL roundtrip.
+   */
+  static async batchRestoreStock(
+    tx: any,
+    stockIncrements: Map<string, number>
+  ): Promise<void> {
+    const entries = Array.from(stockIncrements.entries()).filter(([_, packs]) => packs > 0);
+    if (entries.length === 0) return;
+
+    const valueClauses = entries.map(([id, packs]) => Prisma.sql`(${id}::text, ${packs}::integer)`);
+    await tx.$executeRaw`
+      UPDATE "Product" AS p
+      SET "stockPacks" = p."stockPacks" + v.packs
+      FROM (VALUES ${Prisma.join(valueClauses)}) AS v(id, packs)
+      WHERE p.id = v.id
+    `;
+  }
+
+  /**
+   * Generates and attaches Excel order file in the background without blocking the order creation transaction.
+   */
+  static async generateAndAttachExcel(
+    orderId: string,
+    orderNumber: string,
+    clientName: string,
+    validatedItems: any[],
+    totals: { totalBlocks: number; totalCases: number; totalPrice: number }
+  ) {
+    try {
+      const uploadResult = await this.compileAndUploadExcel(orderNumber, clientName, validatedItems, totals);
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          fileUrl: uploadResult.fileUrl,
+          fileId: uploadResult.fileId,
+          fileName: uploadResult.fileName
+        }
+      });
+      return uploadResult;
+    } catch (err: any) {
+      console.error(`[Background Excel Error] Failed to generate/upload Excel for order ${orderNumber} (${orderId}):`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Ensures an Excel order document exists in storage.
+   * If fileId is missing, compiles and uploads it on-demand.
+   */
+  static async ensureExcelGenerated(orderId: string): Promise<{ fileId: string; fileName: string; fileUrl: string } | null> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            skuAllocations: true
+          }
+        }
+      }
+    });
+
+    if (!order || order.status === 'DRAFT') {
+      return null;
+    }
+
+    if (order.fileId) {
+      return {
+        fileId: order.fileId,
+        fileName: order.fileName || `order_${order.orderNumber}.xlsx`,
+        fileUrl: order.fileUrl || `/api/orders/download?id=${order.id}`
+      };
+    }
+
+    const totals = {
+      totalBlocks: order.totalBlocks,
+      totalCases: order.totalCases,
+      totalPrice: order.totalPrice
+    };
+
+    const clientName = order.customer?.name || 'Клиент';
+    const uploadResult = await this.compileAndUploadExcel(order.orderNumber, clientName, order.items, totals);
+
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        fileUrl: uploadResult.fileUrl,
+        fileId: uploadResult.fileId,
+        fileName: uploadResult.fileName
+      }
+    });
+
+    return {
+      fileId: uploadResult.fileId,
+      fileName: uploadResult.fileName,
+      fileUrl: uploadResult.fileUrl
+    };
+  }
+
+  static invalidateTemplateCache() {
+    this.templateBufferCache = null;
+  }
+
   /**
    * Helper to verify if user has access to a specific order.
    */
@@ -231,17 +365,6 @@ export class OrdersService {
     const { items, status } = data;
     const orderStatus = status === 'DRAFT' ? 'DRAFT' : 'NEW';
 
-    const customerStart = performance.now();
-    const customer = await prisma.user.findUnique({
-      where: { id: session.userId },
-      select: {
-        id: true,
-        name: true
-      }
-    });
-    const customerMs = Math.round(performance.now() - customerStart);
-    if (!customer) throw new Error('Клиент не найден.');
-
     // Constrain product and group queries to only items in this order
     const requestedProductIds = Array.from(new Set(
       items.map(i => i.productId || i.id).filter(Boolean) as string[]
@@ -250,19 +373,29 @@ export class OrdersService {
       items.map(i => i.groupId || i.id).filter(Boolean) as string[]
     ));
 
-    // Load only groups matching the requested IDs or containing any requested child SKU
-    const groupsStart = performance.now();
-    const allGroups = await prisma.productGroup.findMany({
-      where: {
-        isActive: true,
-        OR: [
-          { id: { in: requestedGroupIds } },
-          { skus: { some: { id: { in: requestedProductIds } } } }
-        ]
-      },
-      include: { skus: { where: { isActive: true }, orderBy: { priority: 'asc' } } }
-    });
-    const groupsMs = Math.round(performance.now() - groupsStart);
+    const prefetchStart = performance.now();
+    const [customer, allGroups] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: session.userId },
+        select: {
+          id: true,
+          name: true
+        }
+      }),
+      prisma.productGroup.findMany({
+        where: {
+          isActive: true,
+          OR: [
+            { id: { in: requestedGroupIds } },
+            { skus: { some: { id: { in: requestedProductIds } } } }
+          ]
+        },
+        include: { skus: { where: { isActive: true }, orderBy: { priority: 'asc' } } }
+      })
+    ]);
+    const customerMs = Math.round(performance.now() - prefetchStart);
+    const groupsMs = customerMs;
+    if (!customer) throw new Error('Клиент не найден.');
     const groupMap = new Map(allGroups.map(g => [g.id, g]));
 
     // Collect all relevant product IDs (requested directly + child SKUs of relevant groups)
@@ -439,53 +572,15 @@ export class OrdersService {
 
     const preTransactionGapStart = performance.now();
 
-    const preExcelGapStart = performance.now();
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
     const orderNumber = `ORD-${dateStr}-${timeStr}-${Math.floor(100 + Math.random() * 900)}`;
 
-    let orderFileUrl = null;
-    let fileId = null;
-    let fileName = null;
-    let fileUploadMsg = '';
-    let compileAndUploadExcelTotalMs = 0;
-    let templateDbMs = 0;
-    let templateDownloadMs = 0;
-    let excelDataPreparationMs = 0;
-    let fileMetadataPreparationMs = 0;
-    let excelMs = 0;
-    let storageMs = 0;
-    const preExcelGapMs = Math.round(performance.now() - preExcelGapStart);
-
-    if (orderStatus === 'NEW') {
-      const excelUploadStart = performance.now();
-      const uploadResult = await this.compileAndUploadExcel(orderNumber, customer.name, promoResult.items, {
-        totalBlocks: promoResult.totalBlocks,
-        totalCases: promoResult.totalCases,
-        totalPrice: promoResult.totalPrice
-      });
-      compileAndUploadExcelTotalMs = Math.round(performance.now() - excelUploadStart);
-      orderFileUrl = uploadResult.fileUrl;
-      fileId = uploadResult.fileId;
-      fileName = uploadResult.fileName;
-      fileUploadMsg = uploadResult.message;
-      templateDbMs = uploadResult.templateDbMs || 0;
-      templateDownloadMs = uploadResult.templateDownloadMs || 0;
-      excelDataPreparationMs = uploadResult.excelDataPreparationMs || 0;
-      fileMetadataPreparationMs = uploadResult.fileMetadataPreparationMs || 0;
-      excelMs = uploadResult.excelMs || 0;
-      storageMs = uploadResult.storageMs || 0;
-    }
-
-    const postExcelStart = performance.now();
     let stockDeductionMs = 0;
     let promoDeductionMs = 0;
     let orderCreateMs = 0;
     let orderItemSkuMs = 0;
-    const postExcelPreTransactionMs = Math.round(performance.now() - postExcelStart);
-
-    const preTransactionGapMs = Math.round(performance.now() - preTransactionGapStart);
 
     const txStart = performance.now();
     const savedOrder = await prisma.$transaction(async (tx) => {
@@ -499,22 +594,8 @@ export class OrdersService {
           }
         }
 
-        // Conditional atomic update: decrement only if stockPacks >= neededPacks
-        for (const [productId, neededPacks] of stockDecrements) {
-          const res = await tx.product.updateMany({
-            where: {
-              id: productId,
-              stockPacks: { gte: neededPacks }
-            },
-            data: {
-              stockPacks: { decrement: neededPacks }
-            }
-          });
-          if (res.count === 0) {
-            const pName = productMap.get(productId)?.name || 'неизвестно';
-            throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
-          }
-        }
+        // Conditional atomic batch update in a single SQL roundtrip
+        await OrdersService.batchDeductStock(tx, stockDecrements, productMap);
         stockDeductionMs = Math.round(performance.now() - stockStart);
 
         // Deduct consumable fixed-amount promotion budgets
@@ -543,9 +624,9 @@ export class OrdersService {
           totalBlocks: promoResult.totalBlocks,
           totalCases: promoResult.totalCases,
           totalPrice: promoResult.totalPrice,
-          fileUrl: orderFileUrl,
-          fileId,
-          fileName,
+          fileUrl: null,
+          fileId: null,
+          fileName: null,
           createdAt: now,
           updatedAt: now,
           items: {
@@ -583,8 +664,26 @@ export class OrdersService {
             })
           }
         },
-        include: {
-          items: { include: { product: true } }
+        select: {
+          id: true,
+          orderNumber: true,
+          customerId: true,
+          status: true,
+          totalPacks: true,
+          totalBlocks: true,
+          totalCases: true,
+          totalPrice: true,
+          fileUrl: true,
+          fileId: true,
+          fileName: true,
+          createdAt: true,
+          updatedAt: true,
+          items: {
+            select: {
+              id: true,
+              productId: true
+            }
+          }
         }
       });
       orderCreateMs = Math.round(performance.now() - orderCreateStart);
@@ -616,12 +715,29 @@ export class OrdersService {
 
       return order;
     }, {
-      timeout: 20000,
-      maxWait: 10000
+      timeout: 10000,
+      maxWait: 5000
     });
     const transactionMs = Math.round(performance.now() - txStart);
     const transactionStageTotalMs = stockDeductionMs + promoDeductionMs + orderCreateMs + orderItemSkuMs;
-    const transactionUnaccountedMs = Math.max(0, transactionMs - transactionStageTotalMs);
+
+    // Trigger non-blocking background Excel generation and cloud attachment for NEW orders
+    if (orderStatus === 'NEW') {
+      void OrdersService.generateAndAttachExcel(
+        savedOrder.id,
+        orderNumber,
+        customer.name,
+        promoResult.items.map((vi, idx) => ({
+          ...vi,
+          skuAllocations: itemAllocationsByIndex.get(idx) || itemAllocations.get(vi.productId)
+        })),
+        {
+          totalBlocks: promoResult.totalBlocks,
+          totalCases: promoResult.totalCases,
+          totalPrice: promoResult.totalPrice
+        }
+      );
+    }
 
     const postTxGapStart = performance.now();
     const diff = AuditService.formatItemsDiff([], promoResult.items.map(i => ({ name: i.name, quantity: i.totalQuantityPacks })));
@@ -638,12 +754,12 @@ export class OrdersService {
     const auditLogMs = Math.round(performance.now() - auditStart);
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, promotionExtraProductsMs: ${promotionExtraProductsMs}, promotionExtraGroupsMs: ${promotionExtraGroupsMs}, promotionExtraDataMs: ${promotionExtraDataMs}, validationMs: ${validationMs}, preExcelGapMs: ${preExcelGapMs}, compileAndUploadExcelTotalMs: ${compileAndUploadExcelTotalMs}, templateDbMs: ${templateDbMs}, templateDownloadMs: ${templateDownloadMs}, excelDataPreparationMs: ${excelDataPreparationMs}, fileMetadataPreparationMs: ${fileMetadataPreparationMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, postExcelPreTransactionMs: ${postExcelPreTransactionMs}, preTransactionGapMs: ${preTransactionGapMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderCreateMs: ${orderCreateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionStageTotalMs: ${transactionStageTotalMs}, transactionUnaccountedMs: ${transactionUnaccountedMs}, transactionMs: ${transactionMs}, postTransactionGapMs: ${postTransactionGapMs}, auditLogMs: ${auditLogMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.createOrder customerMs: ${customerMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderCreateMs: ${orderCreateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionStageTotalMs: ${transactionStageTotalMs}, transactionMs: ${transactionMs}, auditLogMs: ${auditLogMs}, totalMs: ${totalMs}`);
 
     return {
       order: savedOrder,
       message: orderStatus === 'NEW' 
-        ? `Заказ ${orderNumber} успешно оформлен! ${fileUploadMsg}` 
+        ? `Заказ ${orderNumber} успешно оформлен!` 
         : `Черновик ${orderNumber} сохранен.`
     };
   }
@@ -956,27 +1072,6 @@ export class OrdersService {
     const validationMs = Math.round(performance.now() - totalStart);
 
     const now = new Date();
-    let orderFileUrl = existingOrder.fileUrl;
-    let fileId = existingOrder.fileId;
-    let fileName = existingOrder.fileName;
-    let fileUploadMsg = '';
-    let excelMs = 0;
-    let storageMs = 0;
-
-    if (orderStatus === 'NEW') {
-      const uploadResult = await this.compileAndUploadExcel(existingOrder.orderNumber, existingOrder.customer.name, processedItems, {
-        totalBlocks,
-        totalCases,
-        totalPrice
-      });
-      orderFileUrl = uploadResult.fileUrl;
-      fileId = uploadResult.fileId;
-      fileName = uploadResult.fileName;
-      fileUploadMsg = uploadResult.message;
-      excelMs = uploadResult.excelMs || 0;
-      storageMs = uploadResult.storageMs || 0;
-    }
-
     let stockRestoreMs = 0;
     let stockDeductionMs = 0;
     let promoDeductionMs = 0;
@@ -1005,12 +1100,7 @@ export class OrdersService {
             }
           }
         }
-        for (const [pid, ppacks] of restoreMap) {
-          await tx.product.update({
-            where: { id: pid },
-            data: { stockPacks: { increment: ppacks } }
-          });
-        }
+        await OrdersService.batchRestoreStock(tx, restoreMap);
         await tx.orderItemSku.deleteMany({ where: { orderItem: { orderId } } });
         stockRestoreMs = Math.round(performance.now() - restoreStart);
       }
@@ -1025,22 +1115,8 @@ export class OrdersService {
           }
         }
 
-        // Conditional atomic update: decrement only if stockPacks >= neededPacks
-        for (const [productId, neededPacks] of stockDecrements) {
-          const res = await tx.product.updateMany({
-            where: {
-              id: productId,
-              stockPacks: { gte: neededPacks }
-            },
-            data: {
-              stockPacks: { decrement: neededPacks }
-            }
-          });
-          if (res.count === 0) {
-            const pName = productMap.get(productId)?.name || 'неизвестно';
-            throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
-          }
-        }
+        // Conditional atomic batch update in a single SQL roundtrip
+        await OrdersService.batchDeductStock(tx, stockDecrements, productMap);
         stockDeductionMs = Math.round(performance.now() - stockStart);
 
         // Deduct consumable fixed-amount promotion budgets
@@ -1072,9 +1148,9 @@ export class OrdersService {
           totalBlocks,
           totalCases,
           totalPrice,
-          fileUrl: orderFileUrl,
-          fileId,
-          fileName,
+          fileUrl: null,
+          fileId: null,
+          fileName: null,
           createdAt: createdAtUpdate,
           updatedAt: now,
           items: {
@@ -1119,7 +1195,27 @@ export class OrdersService {
             })
           }
         },
-        include: { items: { include: { product: true } } }
+        select: {
+          id: true,
+          orderNumber: true,
+          customerId: true,
+          status: true,
+          totalPacks: true,
+          totalBlocks: true,
+          totalCases: true,
+          totalPrice: true,
+          fileUrl: true,
+          fileId: true,
+          fileName: true,
+          createdAt: true,
+          updatedAt: true,
+          items: {
+            select: {
+              id: true,
+              productId: true
+            }
+          }
+        }
       });
       orderUpdateMs = Math.round(performance.now() - orderUpdateStart);
 
@@ -1150,10 +1246,28 @@ export class OrdersService {
 
       return order;
     }, {
-      timeout: 20000,
-      maxWait: 10000
+      timeout: 10000,
+      maxWait: 5000
     });
     const transactionMs = Math.round(performance.now() - txStart);
+
+    // Trigger non-blocking background Excel generation and cloud attachment for NEW orders
+    if (orderStatus === 'NEW') {
+      void OrdersService.generateAndAttachExcel(
+        existingOrder.id,
+        existingOrder.orderNumber,
+        existingOrder.customer.name,
+        processedItems.map((vi, idx) => ({
+          ...vi,
+          skuAllocations: itemAllocationsByIndex.get(idx) || itemAllocations.get(vi.productId)
+        })),
+        {
+          totalBlocks,
+          totalCases,
+          totalPrice
+        }
+      );
+    }
 
     const oldFormat = existingOrder.items.map(i => ({ name: i.productNameSnapshot || i.product?.name || 'Неизвестно', quantity: i.totalQuantityPacks ?? i.quantityPacks }));
     const newFormat = processedItems.map(i => ({ name: i.name, quantity: i.totalQuantityPacks }));
@@ -1177,12 +1291,12 @@ export class OrdersService {
     const auditLogMs = Math.round(performance.now() - auditStart);
 
     const totalMs = Math.round(performance.now() - totalStart);
-    console.log(`[PERF] OrdersService.updateOrder orderLookupMs: ${orderLookupMs}, oldItemSkusMs: ${oldItemSkusMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, stockRestoreMs: ${stockRestoreMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderDeleteItemsMs: ${orderDeleteItemsMs}, orderUpdateMs: ${orderUpdateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionMs: ${transactionMs}, auditLogMs: ${auditLogMs}, excelMs: ${excelMs}, storageMs: ${storageMs}, totalMs: ${totalMs}`);
+    console.log(`[PERF] OrdersService.updateOrder orderLookupMs: ${orderLookupMs}, oldItemSkusMs: ${oldItemSkusMs}, groupsMs: ${groupsMs}, productsMs: ${productsMs}, promotionMs: ${promotionMs}, validationMs: ${validationMs}, stockRestoreMs: ${stockRestoreMs}, stockDeductionMs: ${stockDeductionMs}, promoDeductionMs: ${promoDeductionMs}, orderDeleteItemsMs: ${orderDeleteItemsMs}, orderUpdateMs: ${orderUpdateMs}, orderItemSkuMs: ${orderItemSkuMs}, transactionMs: ${transactionMs}, auditLogMs: ${auditLogMs}, totalMs: ${totalMs}`);
 
     return {
       order: updatedOrder,
       message: orderStatus === 'NEW'
-        ? `Заказ ${existingOrder.orderNumber} успешно оформлен! ${fileUploadMsg}`
+        ? `Заказ ${existingOrder.orderNumber} успешно оформлен!`
         : `Черновик ${existingOrder.orderNumber} обновлён.`
     };
   }
@@ -1287,24 +1401,20 @@ export class OrdersService {
           const oldItemSkus = await tx.orderItemSku.findMany({
             where: { orderItem: { orderId } }
           });
+          const restoreMap = new Map<string, number>();
           if (oldItemSkus.length > 0) {
             for (const sku of oldItemSkus) {
-              await tx.product.update({
-                where: { id: sku.productId },
-                data: { stockPacks: { increment: sku.packs } }
-              });
+              restoreMap.set(sku.productId, (restoreMap.get(sku.productId) || 0) + sku.packs);
             }
           } else {
             // Fallback for legacy orders without OrderItemSku records
             for (const item of order.items) {
               const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
               if (typeof qty !== 'number' || isNaN(qty) || qty <= 0) continue;
-              await tx.product.update({
-                where: { id: item.productId },
-                data: { stockPacks: { increment: qty } }
-              });
+              restoreMap.set(item.productId, (restoreMap.get(item.productId) || 0) + qty);
             }
           }
+          await OrdersService.batchRestoreStock(tx, restoreMap);
 
           // Restore consumable fixed amount budgets if any fixed-amount promotions were applied
           const promoIds = Array.from(new Set(order.items.map(i => i.promotionId).filter(Boolean)));

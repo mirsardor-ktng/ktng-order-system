@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requireAuthAsync, hasPermission, SessionExpiredError } from '@/lib/auth';
 import { downloadFile } from '@/lib/gdrive';
+import { OrdersService } from '@/lib/orders/orders.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,19 @@ export async function GET(req: NextRequest) {
         finalFileName = urlObj.searchParams.get('fileName') || `order_${order.orderNumber}.xlsx`;
       } catch (parseErr) {
         console.error('[Legacy URL Parse Error]', parseErr);
+      }
+    }
+
+    // On-demand generation fallback if background compilation is still running or fileId is missing
+    if (!fileId && order.status !== 'DRAFT') {
+      try {
+        const generated = await OrdersService.ensureExcelGenerated(order.id);
+        if (generated) {
+          fileId = generated.fileId;
+          finalFileName = generated.fileName;
+        }
+      } catch (genErr) {
+        console.error('[On-Demand Excel Generation Error]', genErr);
       }
     }
 

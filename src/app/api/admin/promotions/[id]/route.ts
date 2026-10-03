@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requirePermission } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
+import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +108,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       req
     });
 
+    invalidateOrderCalculationConfig();
+
     return NextResponse.json({ success: true, promotion: updatedPromotion });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -136,6 +139,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       details: `Пользователь ${session.email} удалил акцию "${promotion.name}"`,
       req
     });
+
+    invalidateOrderCalculationConfig();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
