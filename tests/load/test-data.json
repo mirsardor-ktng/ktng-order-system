@@ -1,0 +1,428 @@
+{
+  "company": {
+    "id": "cmuu23ngo0000gtcmat2tcolw",
+    "name": "Load Test Company LLC",
+    "code": "LOADTEST"
+  },
+  "products": [
+    {
+      "id": "cmuu23noc0001gtcmpzjipz0a",
+      "sku": "LOADTEST-SKU-1",
+      "name": "Load Test SKU 1 (Regular)",
+      "price": 15000
+    },
+    {
+      "id": "cmuu23nvq0002gtcmionf13cv",
+      "sku": "LOADTEST-SKU-2",
+      "name": "Load Test SKU 2 (Slims)",
+      "price": 16000
+    }
+  ],
+  "seller": {
+    "id": "cmuu23t6m002wgtcm2gt7ssds",
+    "email": "loadtest-seller@ktng-test.local",
+    "password": "LoadTestPass123!"
+  },
+  "customers": [
+    {
+      "id": "cmuu23o100004gtcmitqraqjx",
+      "email": "loadtest-user-001@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 001",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23o8d0006gtcm5frjup0k",
+      "email": "loadtest-user-002@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 002",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23oc20008gtcmt0hqo21x",
+      "email": "loadtest-user-003@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 003",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23ofp000agtcmeq1w2l2a",
+      "email": "loadtest-user-004@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 004",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23ojc000cgtcmm02hc1tx",
+      "email": "loadtest-user-005@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 005",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23omz000egtcmpnimgf3w",
+      "email": "loadtest-user-006@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 006",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23oqm000ggtcm29tl0kzu",
+      "email": "loadtest-user-007@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 007",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23ou8000igtcmduqc9lri",
+      "email": "loadtest-user-008@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 008",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23oxv000kgtcmnphp195l",
+      "email": "loadtest-user-009@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 009",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23p1i000mgtcml7fkscdp",
+      "email": "loadtest-user-010@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 010",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23p56000ogtcms1tcb3xn",
+      "email": "loadtest-user-011@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 011",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23p8t000qgtcm6c683kds",
+      "email": "loadtest-user-012@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 012",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23pcg000sgtcmhlmcb93k",
+      "email": "loadtest-user-013@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 013",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23pg2000ugtcmisyufxbg",
+      "email": "loadtest-user-014@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 014",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23pjp000wgtcmajfqoys2",
+      "email": "loadtest-user-015@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 015",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23pnb000ygtcmhwm188ab",
+      "email": "loadtest-user-016@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 016",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23pqy0010gtcmsosep284",
+      "email": "loadtest-user-017@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 017",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23puk0012gtcmhr9yu1mb",
+      "email": "loadtest-user-018@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 018",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23py80014gtcmnu9v3hvn",
+      "email": "loadtest-user-019@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 019",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23q1v0016gtcm76g0fkjv",
+      "email": "loadtest-user-020@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 020",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23q5h0018gtcmn6ii6j5j",
+      "email": "loadtest-user-021@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 021",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23q94001agtcmcvxfw5ad",
+      "email": "loadtest-user-022@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 022",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23qcq001cgtcmusjd50qc",
+      "email": "loadtest-user-023@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 023",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23qgd001egtcmomrr7vwv",
+      "email": "loadtest-user-024@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 024",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23qk3001ggtcmnw434oo6",
+      "email": "loadtest-user-025@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 025",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23qnq001igtcm6gbm27jf",
+      "email": "loadtest-user-026@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 026",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23qrc001kgtcmm7n5nnzf",
+      "email": "loadtest-user-027@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 027",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23quz001mgtcmwq1iieyi",
+      "email": "loadtest-user-028@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 028",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23qym001ogtcmn4l98xc5",
+      "email": "loadtest-user-029@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 029",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23r29001qgtcmks0pa7tg",
+      "email": "loadtest-user-030@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 030",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23r5v001sgtcmzasr5ynh",
+      "email": "loadtest-user-031@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 031",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23r9i001ugtcmf2q3som2",
+      "email": "loadtest-user-032@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 032",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23rd5001wgtcmt8jhudcs",
+      "email": "loadtest-user-033@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 033",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23rgs001ygtcmftqd8q27",
+      "email": "loadtest-user-034@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 034",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23rkf0020gtcmm572a06p",
+      "email": "loadtest-user-035@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 035",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23ro10022gtcmuul9379r",
+      "email": "loadtest-user-036@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 036",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23rro0024gtcm3susnhtq",
+      "email": "loadtest-user-037@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 037",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23rva0026gtcm3m6x2yd0",
+      "email": "loadtest-user-038@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 038",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23ryy0028gtcml9x6e9vk",
+      "email": "loadtest-user-039@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 039",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23s2l002agtcms2hwfnab",
+      "email": "loadtest-user-040@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 040",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23s68002cgtcmo9yp9qfn",
+      "email": "loadtest-user-041@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 041",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23s9u002egtcmkv54mzrp",
+      "email": "loadtest-user-042@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 042",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23sdh002ggtcml9l4dxvx",
+      "email": "loadtest-user-043@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 043",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23sh4002igtcmg22rhmra",
+      "email": "loadtest-user-044@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 044",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23skq002kgtcmta1u1prn",
+      "email": "loadtest-user-045@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 045",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23sod002mgtcmt5eis8w0",
+      "email": "loadtest-user-046@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 046",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23ss1002ogtcm9cnzn31d",
+      "email": "loadtest-user-047@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 047",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23svo002qgtcm63vtcqoy",
+      "email": "loadtest-user-048@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 048",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23szd002sgtcmq7q0ocyu",
+      "email": "loadtest-user-049@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 049",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    },
+    {
+      "id": "cmuu23t30002ugtcm9dw4kl4e",
+      "email": "loadtest-user-050@ktng-test.local",
+      "password": "LoadTestPass123!",
+      "role": "CUSTOMER",
+      "name": "Load Test User 050",
+      "companyId": "cmuu23ngo0000gtcmat2tcolw"
+    }
+  ]
+}
