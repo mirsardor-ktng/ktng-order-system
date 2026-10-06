@@ -70,6 +70,34 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: userMsg }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await requirePermissionAsync(req, ['orders:create', 'orders:edit', 'orders:view_own']);
+    const { searchParams } = new URL(req.url);
+    let orderId = searchParams.get('id') || searchParams.get('orderId');
+
+    if (!orderId) {
+      const body = await req.json().catch(() => ({}));
+      orderId = body?.id || body?.orderId;
+    }
+
+    if (!orderId) {
+      return NextResponse.json({ error: 'ID заказа не указан.' }, { status: 400 });
+    }
+
+    const result = await OrdersService.deleteDraft(session as any, orderId, req);
+    return NextResponse.json(result);
+  } catch (error: any) {
+    if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
+      return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
+    console.error('[Delete Draft Error]', error);
+    const status = error.message?.includes('нет прав') ? 403 : error.message?.includes('не найден') ? 404 : 400;
+    return NextResponse.json({ error: error.message || 'Не удалось удалить черновик.' }, { status });
+  }
+}
+
 function formatOrderErrorMessage(error: any): string {
   const msg = error?.message || '';
   if (msg.includes('Transaction not found') || msg.includes('Transaction already closed') || msg.includes('expired transaction')) {

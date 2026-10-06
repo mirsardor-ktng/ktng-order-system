@@ -216,9 +216,8 @@ export default function AnalyticsPage() {
     setMonthProductsLoading(true);
     try {
       const params = new URLSearchParams();
-      params.set("month", monthPayload.rawKey || monthPayload.month);
-      if (appliedStartDate) params.set("startDate", appliedStartDate);
-      if (appliedEndDate) params.set("endDate", appliedEndDate);
+      const rawKey = monthPayload.rawKey || monthPayload.month;
+      params.set("month", rawKey);
       if (selectedCompanyIds.length > 0) params.set("companyIds", selectedCompanyIds.join(","));
 
       const res = await fetch(`/api/analytics?${params.toString()}`);
@@ -819,7 +818,12 @@ export default function AnalyticsPage() {
               <span>
                 {t('analytics.detailFor')}{" "}
                 <span className="text-cyan-400">
-                  {selectedMonth.month}
+                  {selectedMonth.rawKey && /^\d{4}-\d{2}-\d{2}$/.test(selectedMonth.rawKey)
+                    ? (() => {
+                        const [y, m, d] = selectedMonth.rawKey.split('-');
+                        return `${d}.${m}.${y}`;
+                      })()
+                    : selectedMonth.month}
                 </span>
               </span>
             </h2>
@@ -894,13 +898,19 @@ export default function AnalyticsPage() {
               <button
                 onClick={() =>
                   router.push(
-                    `/customer/orders?month=${selectedMonth.month}`
+                    `/customer/orders?month=${selectedMonth.rawKey || selectedMonth.month}`
                   )
                 }
                 className="btn-primary flex items-center gap-2 px-5 py-2.5 text-xs"
               >
                 <span>
-                  {t('analytics.ordersHistoryFor')} {selectedMonth.month}
+                  {t('analytics.ordersHistoryFor')}{" "}
+                  {selectedMonth.rawKey && /^\d{4}-\d{2}-\d{2}$/.test(selectedMonth.rawKey)
+                    ? (() => {
+                        const [y, m, d] = selectedMonth.rawKey.split('-');
+                        return `${d}.${m}.${y}`;
+                      })()
+                    : selectedMonth.month}
                 </span>
                 <ArrowRight className="h-4 w-4" />
               </button>

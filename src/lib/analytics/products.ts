@@ -1,4 +1,4 @@
-import { getMonthKey, getPreviousMonthKey, calculatePercentageChange } from './helpers';
+import { getMonthKey, getPreviousMonthKey, getDayKey, getPreviousDayKey, calculatePercentageChange } from './helpers';
 
 export interface ProductAnalyticsItem {
   productId: string;
@@ -15,17 +15,22 @@ export function calculateProductAnalytics(
   previousOrders?: any[],
   selectedMonthKey?: string | null
 ): ProductAnalyticsItem[] {
-  // If month is selected, compute for that month & MoM growth compared to previous month
-  const targetOrders = selectedMonthKey 
+  const isDay = !!selectedMonthKey && /^\d{4}-\d{2}-\d{2}$/.test(selectedMonthKey);
+  const isMonth = !!selectedMonthKey && /^\d{4}-\d{2}$/.test(selectedMonthKey);
+
+  // If day/month is selected, filter target orders accordingly
+  const targetOrders = isDay
+    ? orders.filter(o => getDayKey(new Date(o.createdAt)) === selectedMonthKey)
+    : isMonth
     ? orders.filter(o => getMonthKey(new Date(o.createdAt)) === selectedMonthKey)
     : orders;
 
-  const totalRevenue = targetOrders.reduce((sum, o) => sum + o.totalPrice, 0);
+  const totalRevenue = targetOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
 
   const productMap = new Map<string, { productId: string; sku: string; name: string; cases: number; revenue: number }>();
 
   for (const order of targetOrders) {
-    for (const item of order.items) {
+    for (const item of (order.items || [])) {
       const productId = item.productId;
       const sku = item.skuSnapshot || item.product?.sku || 'Unknown';
       const name = item.productNameSnapshot || item.product?.name || 'Unknown Product';
@@ -43,7 +48,7 @@ export function calculateProductAnalytics(
       }
 
       const p = productMap.get(productId)!;
-      p.cases += item.quantityCases;
+      p.cases += item.quantityCases || 0;
       p.revenue += itemTotalPrice;
     }
   }
@@ -52,17 +57,21 @@ export function calculateProductAnalytics(
   let previousMap = new Map<string, number>();
   if (previousOrders && previousOrders.length > 0) {
     for (const order of previousOrders) {
-      for (const item of order.items) {
+      for (const item of (order.items || [])) {
         const productId = item.productId;
         const itemTotalPrice = item.itemTotalPrice ?? (item.quantityPacks * item.price);
         previousMap.set(productId, (previousMap.get(productId) || 0) + itemTotalPrice);
       }
     }
   } else if (selectedMonthKey) {
-    const prevMonthKey = getPreviousMonthKey(selectedMonthKey);
-    const prevOrders = orders.filter(o => getMonthKey(new Date(o.createdAt)) === prevMonthKey);
+    const prevKey = isDay ? getPreviousDayKey(selectedMonthKey) : getPreviousMonthKey(selectedMonthKey);
+    const prevOrders = orders.filter(o =>
+      isDay
+        ? getDayKey(new Date(o.createdAt)) === prevKey
+        : getMonthKey(new Date(o.createdAt)) === prevKey
+    );
     for (const order of prevOrders) {
-      for (const item of order.items) {
+      for (const item of (order.items || [])) {
         const productId = item.productId;
         const itemTotalPrice = item.itemTotalPrice ?? (item.quantityPacks * item.price);
         previousMap.set(productId, (previousMap.get(productId) || 0) + itemTotalPrice);

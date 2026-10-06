@@ -4,6 +4,22 @@ export function getMonthKey(date: Date): string {
   return `${year}-${month}`;
 }
 
+export function getDayKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getPreviousDayKey(dayKey: string): string {
+  const [year, month, day] = dayKey.split('-').map(Number);
+  const dt = new Date(Date.UTC(year, month - 1, day - 1));
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(dt.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export function getPreviousMonthKey(monthKey: string): string {
   const [year, month] = monthKey.split('-').map(Number);
   if (month === 1) {
@@ -22,6 +38,8 @@ export function getPreviousMonthKey(monthKey: string): string {
 export function calculateComparisonPeriod(startStr: string, endStr: string): {
   prevStartStr: string;
   prevEndStr: string;
+  previousStart?: string;
+  previousEnd?: string;
   periodLength: number;
 } {
   const [sYear, sMonth, sDay] = startStr.split('-').map(Number);

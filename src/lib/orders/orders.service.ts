@@ -1590,6 +1590,60 @@ export class OrdersService {
     };
   }
 
+  /**
+   * DELETE: Deletes an order if and only if it is in DRAFT status.
+   */
+  static async deleteDraft(session: JWTPayload, orderId: string, req?: NextRequest) {
+    if (!orderId) {
+      throw new Error('ID заказа не указан.');
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        customerId: true,
+        companyId: true,
+      }
+    });
+
+    if (!order) {
+      throw new Error('Черновик заказа не найден.');
+    }
+
+    if (order.status !== 'DRAFT') {
+      throw new Error('Удалить можно только черновик заказа.');
+    }
+
+    const isStaff = hasPermission(session, 'orders:view_all') || hasPermission(session, 'orders:edit');
+    if (!isStaff) {
+      const isOwner = order.customerId === session.userId || (session.companyId && order.companyId === session.companyId);
+      if (!isOwner) {
+        throw new Error('У вас нет прав для удаления этого черновика.');
+      }
+    }
+
+    await prisma.order.delete({
+      where: { id: orderId }
+    });
+
+    await AuditService.log({
+      userId: session.userId,
+      action: 'DELETE_DRAFT',
+      details: `Черновик заказа №${order.orderNumber} удален`,
+      req
+    });
+
+    return {
+      success: true,
+      deletedOrderId: orderId,
+      orderNumber: order.orderNumber,
+      message: `Черновик №${order.orderNumber} успешно удален.`
+    };
+  }
+
   private static templateBufferCache: { fileId: string; buffer: Buffer; expiresAt: number } | null = null;
 
   /**
