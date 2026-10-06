@@ -93,7 +93,7 @@ export class OrdersService {
    * Ensures an Excel order document exists in storage.
    * If fileId is missing, compiles and uploads it on-demand.
    */
-  static async ensureExcelGenerated(orderId: string): Promise<{ fileId: string; fileName: string; fileUrl: string } | null> {
+  static async ensureExcelGenerated(orderId: string): Promise<{ fileId: string; fileName: string; fileUrl: string; buffer?: Buffer } | null> {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -139,7 +139,8 @@ export class OrdersService {
     return {
       fileId: uploadResult.fileId,
       fileName: uploadResult.fileName,
-      fileUrl: uploadResult.fileUrl
+      fileUrl: uploadResult.fileUrl,
+      buffer: uploadResult.buffer
     };
   }
 
@@ -1778,6 +1779,7 @@ export class OrdersService {
       `&fileName=${encodeURIComponent(excelFileName)}`,
       fileId: uploadResult.fileId,
       fileName: excelFileName,
+      buffer: compiledExcelBuffer,
       message: uploadResult.message,
       templateDbMs,
       templateDownloadMs,

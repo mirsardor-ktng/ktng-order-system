@@ -675,7 +675,7 @@ function CustomerOrdersContent() {
                   </div>
 
                   <div className="flex gap-2.5 w-full sm:w-auto">
-                    {(order.fileUrl || order.fileId) && (
+                    {order.status !== 'DRAFT' && (
                       <a
                         href={`/api/orders/download?id=${order.id}`}
                         download

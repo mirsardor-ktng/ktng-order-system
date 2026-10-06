@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const session = await requireAuthAsync(req);
 
     const { searchParams } = new URL(req.url);
-    const orderId = searchParams.get('id');
+    const orderId = searchParams.get('id') || searchParams.get('orderId');
 
     if (!orderId) {
       return NextResponse.json({ error: 'ID заказа не указан' }, { status: 400 });
@@ -42,8 +42,12 @@ export async function GET(req: NextRequest) {
           return NextResponse.json({ error: 'Доступ запрещен (Вы можете скачивать только заказы вашей компании).' }, { status: 403 });
         }
       } else {
-        // Seller / Manager: if order is NEW, only validator can access
-        if (order.status === 'NEW' && !hasPermission(session, 'orders:validation:view')) {
+        // Staff check: requires orders:export
+        if (!hasPermission(session, 'orders:export')) {
+          return NextResponse.json({ error: 'Доступ запрещен (требуется право на выгрузку заказов в Excel).' }, { status: 403 });
+        }
+        // Seller / Manager: if order is NEW, only validator or same company can access
+        if (order.status === 'NEW' && !hasPermission(session, 'orders:validation:view') && (!session.companyId || order.companyId !== session.companyId)) {
           return NextResponse.json({ error: 'Доступ запрещен (заказ ожидает валидации).' }, { status: 403 });
         }
         if (order.status === 'DRAFT') {
@@ -55,6 +59,7 @@ export async function GET(req: NextRequest) {
     // 4. Resolve file parameters (New architecture first, fallback to legacy parse next)
     let fileId = order.fileId;
     let finalFileName = order.fileName;
+    let freshlyGeneratedBuffer: Buffer | null = null;
 
     if (!fileId && order.fileUrl) {
       try {
@@ -73,13 +78,16 @@ export async function GET(req: NextRequest) {
         if (generated) {
           fileId = generated.fileId;
           finalFileName = generated.fileName;
+          if (generated.buffer) {
+            freshlyGeneratedBuffer = generated.buffer;
+          }
         }
       } catch (genErr) {
         console.error('[On-Demand Excel Generation Error]', genErr);
       }
     }
 
-    if (!fileId) {
+    if (!fileId && !freshlyGeneratedBuffer) {
       return NextResponse.json({ error: 'Файл накладной для этого заказа еще не сгенерирован или отсутствует ID.' }, { status: 404 });
     }
 
@@ -89,12 +97,16 @@ export async function GET(req: NextRequest) {
 
     let fileBuffer: Buffer;
 
-    // 5. Download the file from Google Drive (or local mock)
-    try {
-      fileBuffer = await downloadFile(fileId, finalFileName, 'Orders');
-    } catch (gdriveErr: any) {
-      console.error('[GDrive Download Error]', gdriveErr);
-      return NextResponse.json({ error: 'Не удалось скачать файл накладной из облачного хранилища.' }, { status: 502 });
+    // 5. Download the file from Google Drive (or use freshly generated in-memory buffer)
+    if (freshlyGeneratedBuffer) {
+      fileBuffer = freshlyGeneratedBuffer;
+    } else {
+      try {
+        fileBuffer = await downloadFile(fileId!, finalFileName, 'Orders');
+      } catch (gdriveErr: any) {
+        console.error('[GDrive Download Error]', gdriveErr);
+        return NextResponse.json({ error: 'Не удалось скачать файл накладной из облачного хранилища.' }, { status: 502 });
+      }
     }
 
     // 6. Log the action to Audit Logs

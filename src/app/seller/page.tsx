@@ -1212,17 +1212,7 @@ export default function SellerDashboard() {
 
                           {/* Excel Download button if authorized */}
                           {canExportExcel && (
-                            (order.fileUrl || order.fileId) ? (
-                              <a
-                                href={`/api/orders/download?id=${order.id}`}
-                                download
-                                className="btn-primary flex items-center justify-center gap-2 px-3.5 py-1.5 text-xs"
-                                title={t('seller.downloadExcel')}
-                              >
-                                <Download className="h-3.5 w-3.5" />
-                                <span>Excel</span>
-                              </a>
-                            ) : order.status === 'DRAFT' ? (
+                            order.status === 'DRAFT' ? (
                               <div className="flex items-center gap-2">
                                 <span className="text-slate-500 text-[10px] py-1 px-2.5 border border-dashed border-white/5 rounded-lg whitespace-nowrap">
                                   {t('orders.statusDraft')}
@@ -1238,9 +1228,15 @@ export default function SellerDashboard() {
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-red-400 bg-red-500/10 border border-red-500/20 text-[10px] font-bold py-1 px-2.5 rounded-lg whitespace-nowrap">
-                                {t('seller.noExcel')}
-                              </span>
+                              <a
+                                href={`/api/orders/download?id=${order.id}`}
+                                download
+                                className="btn-primary flex items-center justify-center gap-2 px-3.5 py-1.5 text-xs"
+                                title={t('seller.downloadExcel')}
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                                <span>Excel</span>
+                              </a>
                             )
                           )}
                         </div>
