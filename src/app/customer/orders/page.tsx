@@ -2,10 +2,13 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { History, Download, RefreshCw, FileText, CheckCircle2, Clock, Ban, Loader2, ArrowRight, Edit, MessageSquare, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { breakdownPacks, formatCaseQuantity } from '@/lib/conversion';
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 import { useTranslation } from '@/i18n/context';
+import { PeriodPreset } from '@/lib/date-utils';
+import OrderPeriodFilter from '@/components/OrderPeriodFilter';
+import DeleteDraftModal from '@/components/DeleteDraftModal';
 
 
 interface CommentItem {
@@ -59,7 +62,7 @@ interface OrderItem {
 interface Order {
   id: string;
   orderNumber: string;
-  status: 'DRAFT' | 'NEW' | 'ASSEMBLY' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED';
+  status: 'DRAFT' | 'NEW' | 'ACCEPTED' | 'ASSEMBLY' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED';
   totalPacks: number;
   totalBlocks: number;
   totalCases: number;
@@ -76,8 +79,29 @@ function CustomerOrdersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t, language } = useTranslation();
-  const filterMonth = searchParams.get('month'); // e.g. "2026-06"
+  const filterMonth = searchParams.get('month'); // e.g. "2026-06" or "2026-06-15"
   const locale = language === 'uz' ? 'uz-UZ' : language === 'en' ? 'en-US' : 'ru-RU';
+
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>(() => {
+    if (filterMonth) return 'CUSTOM';
+    return 'ALL';
+  });
+  const [appliedStartDate, setAppliedStartDate] = useState<string>(() => {
+    if (filterMonth && /^\d{4}-\d{2}-\d{2}$/.test(filterMonth)) return filterMonth;
+    if (filterMonth && /^\d{4}-\d{2}$/.test(filterMonth)) return `${filterMonth}-01`;
+    return '';
+  });
+  const [appliedEndDate, setAppliedEndDate] = useState<string>(() => {
+    if (filterMonth && /^\d{4}-\d{2}-\d{2}$/.test(filterMonth)) return filterMonth;
+    if (filterMonth && /^\d{4}-\d{2}$/.test(filterMonth)) {
+      const [y, m] = filterMonth.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      return `${filterMonth}-${String(lastDay).padStart(2, '0')}`;
+    }
+    return '';
+  });
+  const [deletingDraftOrder, setDeletingDraftOrder] = useState<Order | null>(null);
+  const [isDeletingDraft, setIsDeletingDraft] = useState(false);
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,7 +180,27 @@ function CustomerOrdersContent() {
     }
   };
 
-  const loadOrders = async (targetPage: number = 1, append: boolean = false) => {
+  const handleDeleteDraft = async () => {
+    if (!deletingDraftOrder) return;
+    setIsDeletingDraft(true);
+    try {
+      const res = await fetch(`/api/orders?id=${deletingDraftOrder.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || t('orders.deleteDraftError'));
+      }
+      setOrders((prev) => prev.filter((o) => o.id !== deletingDraftOrder.id));
+      setTotalOrders((prev) => Math.max(0, prev - 1));
+      setDeletingDraftOrder(null);
+    } catch (err: any) {
+      console.error('Delete draft error', err);
+      alert(err.message || t('orders.deleteDraftError'));
+    } finally {
+      setIsDeletingDraft(false);
+    }
+  };
+
+  const loadOrders = async (targetPage: number = 1, append: boolean = false, overrideStart?: string, overrideEnd?: string) => {
     try {
       if (append) {
         setLoadingMore(true);
@@ -168,12 +212,11 @@ function CustomerOrdersContent() {
       params.set('page', String(targetPage));
       params.set('pageSize', '25');
 
-      if (filterMonth && /^\d{4}-\d{2}$/.test(filterMonth)) {
-        const [y, m] = filterMonth.split('-').map(Number);
-        const lastDay = new Date(y, m, 0).getDate();
-        params.set('startDate', `${filterMonth}-01`);
-        params.set('endDate', `${filterMonth}-${String(lastDay).padStart(2, '0')}`);
-      }
+      const sDate = overrideStart !== undefined ? overrideStart : appliedStartDate;
+      const eDate = overrideEnd !== undefined ? overrideEnd : appliedEndDate;
+
+      if (sDate) params.set('startDate', sDate);
+      if (eDate) params.set('endDate', eDate);
 
       const res = await fetch(`/api/orders?${params.toString()}`);
       if (res.ok) {
@@ -217,21 +260,14 @@ function CustomerOrdersContent() {
 
   useEffect(() => {
     loadOrders(1, false);
-  }, [filterMonth]);
+  }, []);
 
   const handleLoadMore = () => {
     if (loadingMore || !hasMore) return;
     loadOrders(page + 1, true);
   };
 
-  // Filter orders by month if query param is set
-  const filteredOrders = filterMonth
-    ? orders.filter(o => {
-        const oDate = new Date(o.createdAt);
-        const monthKey = `${oDate.getFullYear()}-${String(oDate.getMonth() + 1).padStart(2, '0')}`;
-        return monthKey === filterMonth;
-      })
-    : orders;
+  const filteredOrders = orders;
 
   // Repeat Previous Order: loads concrete SKU items into localStorage and sends them to catalog
   const handleRepeatOrder = (order: Order) => {
@@ -371,21 +407,40 @@ function CustomerOrdersContent() {
             {t('orders.historyTitle')}
           </h2>
         </div>
-        {filterMonth && (
-          <button
-            onClick={() => {
-              const cleanUrl = new URL(window.location.href);
-              cleanUrl.searchParams.delete('month');
-              window.history.pushState({}, '', cleanUrl.toString());
-              loadOrders();
-              router.replace('/customer/orders');
-            }}
-            className="text-xs text-indigo-400 hover:text-indigo-300 font-bold"
-          >
-            {t('common.all')}
-          </button>
-        )}
       </div>
+
+      <OrderPeriodFilter
+        startDate={appliedStartDate}
+        endDate={appliedEndDate}
+        activePreset={periodPreset}
+        onSelectPreset={(preset, start, end) => {
+          setPeriodPreset(preset);
+          setAppliedStartDate(start);
+          setAppliedEndDate(end);
+          setPage(1);
+          setExpandedOrders(new Set());
+          loadOrders(1, false, start, end);
+        }}
+        onApplyCustom={(start, end) => {
+          setPeriodPreset('CUSTOM');
+          setAppliedStartDate(start);
+          setAppliedEndDate(end);
+          setPage(1);
+          setExpandedOrders(new Set());
+          loadOrders(1, false, start, end);
+        }}
+        onReset={() => {
+          setPeriodPreset('ALL');
+          setAppliedStartDate('');
+          setAppliedEndDate('');
+          setPage(1);
+          setExpandedOrders(new Set());
+          const cleanUrl = new URL(window.location.href);
+          cleanUrl.searchParams.delete('month');
+          window.history.pushState({}, '', cleanUrl.toString());
+          loadOrders(1, false, '', '');
+        }}
+      />
 
       {filteredOrders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center glass-panel rounded-2xl">
@@ -623,13 +678,23 @@ function CustomerOrdersContent() {
                     )}
 
                     {order.status === 'DRAFT' ? (
-                      <button
-                        onClick={() => router.push(`/customer?editDraftId=${order.id}`)}
-                        className="flex-1 sm:flex-initial bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-2 px-4 py-2.5 text-xs transition-all"
-                      >
-                        <Edit className="h-4 w-4" />
-                        <span>{t('orders.draft')}</span>
-                      </button>
+                      <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+                        <button
+                          onClick={() => router.push(`/customer?editDraftId=${order.id}`)}
+                          className="flex-1 sm:flex-initial bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-2 px-4 py-2.5 text-xs transition-all"
+                        >
+                          <Edit className="h-4 w-4" />
+                          <span>{t('orders.draft')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingDraftOrder(order)}
+                          className="p-2.5 rounded-xl text-rose-400 hover:text-white hover:bg-rose-500/20 border border-rose-500/20 transition-all flex items-center justify-center"
+                          title={t('orders.deleteDraft')}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onClick={() => handleRepeatOrder(order)}
@@ -676,6 +741,15 @@ function CustomerOrdersContent() {
           </button>
         </div>
       )}
+
+      {/* Delete Draft Confirmation Modal */}
+      <DeleteDraftModal
+        isOpen={!!deletingDraftOrder}
+        orderNumber={deletingDraftOrder?.orderNumber}
+        isDeleting={isDeletingDraft}
+        onConfirm={handleDeleteDraft}
+        onCancel={() => setDeletingDraftOrder(null)}
+      />
     </div>
   );
 }

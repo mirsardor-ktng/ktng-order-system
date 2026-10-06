@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Star, Layers, Package, Grid, Plus, Minus, FileText, Check, AlertCircle, ShoppingCart, Loader2 } from 'lucide-react';
+import { Search, Star, Layers, Package, Grid, Plus, Minus, FileText, Check, AlertCircle, ShoppingCart, Loader2, Trash2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { UnitMode, packsToUnit, unitToPacks, breakdownPacks } from '@/lib/conversion';
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 import { useTranslation } from '@/i18n/context';
 import { calculateOrderPure } from '@/lib/calculation/engine';
 import type { OrderCalculationConfig } from '@/lib/calculation/types';
+import DeleteDraftModal from '@/components/DeleteDraftModal';
 
 interface TagItem {
 
@@ -148,6 +149,34 @@ export default function CustomerCatalog() {
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [activeDraftNumber, setActiveDraftNumber] = useState<string | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingDraft, setIsDeletingDraft] = useState(false);
+
+  const handleDeleteActiveDraft = async () => {
+    if (!activeDraftId) return;
+    setIsDeletingDraft(true);
+    try {
+      const res = await fetch(`/api/orders?id=${activeDraftId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || t('orders.deleteDraftError'));
+      }
+      setActiveDraftId(null);
+      setActiveDraftNumber(null);
+      setCart({});
+      setIsDeleteModalOpen(false);
+      setMessage({ type: 'success', text: t('orders.draftDeletedSuccess') });
+      const url = new URL(window.location.href);
+      url.searchParams.delete('editDraftId');
+      url.searchParams.delete('draftId');
+      window.history.pushState({}, '', url.toString());
+    } catch (err: any) {
+      console.error('Failed to delete active draft', err);
+      setMessage({ type: 'error', text: err.message || t('orders.deleteDraftError') });
+    } finally {
+      setIsDeletingDraft(false);
+    }
+  };
 
   // Request sequence counter for stale response protection
   const calculateSeqRef = useRef<number>(0);
@@ -667,21 +696,32 @@ export default function CustomerCatalog() {
               {t('orders.draft')}: <strong className="text-slate-100">{activeDraftNumber}</strong>
             </span>
           </div>
-          <button
-            onClick={() => {
-              setActiveDraftId(null);
-              setActiveDraftNumber(null);
-              setCart({});
-              setMessage(null);
-              const url = new URL(window.location.href);
-              url.searchParams.delete('editDraftId');
-              url.searchParams.delete('draftId');
-              window.history.pushState({}, '', url.toString());
-            }}
-            className="text-xs text-slate-350 hover:text-white border border-white/10 hover:border-white/20 px-3 py-1.5 rounded-lg bg-slate-900/50 font-bold transition-all"
-          >
-            {t('common.cancel')}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsDeleteModalOpen(true)}
+              className="text-xs text-rose-400 hover:text-white hover:bg-rose-500/20 border border-rose-500/30 px-3 py-1.5 rounded-lg bg-slate-900/50 font-bold transition-all flex items-center gap-1.5"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>{t('orders.deleteDraft')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDraftId(null);
+                setActiveDraftNumber(null);
+                setCart({});
+                setMessage(null);
+                const url = new URL(window.location.href);
+                url.searchParams.delete('editDraftId');
+                url.searchParams.delete('draftId');
+                window.history.pushState({}, '', url.toString());
+              }}
+              className="text-xs text-slate-350 hover:text-white border border-white/10 hover:border-white/20 px-3 py-1.5 rounded-lg bg-slate-900/50 font-bold transition-all"
+            >
+              {t('common.cancel')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -1181,10 +1221,18 @@ export default function CustomerCatalog() {
                 <span>{activeDraftId ? t('orders.confirmOrder') : t('orders.checkoutButton')}</span>
               </button>
             </div>
-
           </div>
         </div>
       )}
+
+      {/* Delete Draft Modal */}
+      <DeleteDraftModal
+        isOpen={isDeleteModalOpen}
+        orderNumber={activeDraftNumber}
+        isDeleting={isDeletingDraft}
+        onConfirm={handleDeleteActiveDraft}
+        onCancel={() => setIsDeleteModalOpen(false)}
+      />
     </div>
   );
 }

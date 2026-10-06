@@ -42,7 +42,37 @@ export class AnalyticsService {
     let prevStartStr: string | null = null;
     let prevEndStr: string | null = null;
 
-    if (options.startDate && options.endDate) {
+    if (options.monthKey) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(options.monthKey)) {
+        const startStr = options.monthKey;
+        const endStr = options.monthKey;
+
+        const comp = calculateComparisonPeriod(startStr, endStr);
+        prevStartStr = comp.prevStartStr;
+        prevEndStr = comp.prevEndStr;
+        periodLength = comp.periodLength;
+
+        currentStart = new Date(`${startStr}T00:00:00.000Z`);
+        currentEnd = new Date(`${endStr}T23:59:59.999Z`);
+        prevStart = new Date(`${comp.prevStartStr}T00:00:00.000Z`);
+        prevEnd = new Date(`${comp.prevEndStr}T23:59:59.999Z`);
+      } else if (/^\d{4}-\d{2}$/.test(options.monthKey)) {
+        const [y, m] = options.monthKey.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        const startStr = `${options.monthKey}-01`;
+        const endStr = `${options.monthKey}-${String(lastDay).padStart(2, '0')}`;
+
+        const comp = calculateComparisonPeriod(startStr, endStr);
+        prevStartStr = comp.prevStartStr;
+        prevEndStr = comp.prevEndStr;
+        periodLength = comp.periodLength;
+
+        currentStart = new Date(`${startStr}T00:00:00.000Z`);
+        currentEnd = new Date(`${endStr}T23:59:59.999Z`);
+        prevStart = new Date(`${comp.prevStartStr}T00:00:00.000Z`);
+        prevEnd = new Date(`${comp.prevEndStr}T23:59:59.999Z`);
+      }
+    } else if (options.startDate && options.endDate) {
       const comp = calculateComparisonPeriod(options.startDate, options.endDate);
       prevStartStr = comp.prevStartStr;
       prevEndStr = comp.prevEndStr;
@@ -50,21 +80,6 @@ export class AnalyticsService {
 
       currentStart = new Date(`${options.startDate}T00:00:00.000Z`);
       currentEnd = new Date(`${options.endDate}T23:59:59.999Z`);
-      prevStart = new Date(`${comp.prevStartStr}T00:00:00.000Z`);
-      prevEnd = new Date(`${comp.prevEndStr}T23:59:59.999Z`);
-    } else if (options.monthKey && /^\d{4}-\d{2}$/.test(options.monthKey)) {
-      const [y, m] = options.monthKey.split('-').map(Number);
-      const lastDay = new Date(y, m, 0).getDate();
-      const startStr = `${options.monthKey}-01`;
-      const endStr = `${options.monthKey}-${String(lastDay).padStart(2, '0')}`;
-
-      const comp = calculateComparisonPeriod(startStr, endStr);
-      prevStartStr = comp.prevStartStr;
-      prevEndStr = comp.prevEndStr;
-      periodLength = comp.periodLength;
-
-      currentStart = new Date(`${startStr}T00:00:00.000Z`);
-      currentEnd = new Date(`${endStr}T23:59:59.999Z`);
       prevStart = new Date(`${comp.prevStartStr}T00:00:00.000Z`);
       prevEnd = new Date(`${comp.prevEndStr}T23:59:59.999Z`);
     }

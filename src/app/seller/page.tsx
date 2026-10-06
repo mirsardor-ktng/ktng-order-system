@@ -9,9 +9,11 @@ import {
   ChevronDown, ChevronUp
 } from 'lucide-react';
 import { breakdownPacks, formatCaseQuantity } from '@/lib/conversion';
-import { getTashkentTodayString, getTashkentWeekAgoString } from '@/lib/date-utils';
+import { getTashkentTodayString, getTashkentWeekAgoString, PeriodPreset } from '@/lib/date-utils';
 import { useTranslation } from '@/i18n/context';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
+import OrderPeriodFilter from '@/components/OrderPeriodFilter';
+import DeleteDraftModal from '@/components/DeleteDraftModal';
 
 interface CommentItem {
   id: string;
@@ -43,8 +45,10 @@ interface OrderItem {
   quantityBlocks: number;
   quantityCases: number;
   price: number;
+  effectivePrice?: number;
   productNameSnapshot: string | null;
   skuSnapshot: string | null;
+  skuAllocations?: any[];
   product: {
     id?: string;
     sku: string;
@@ -55,7 +59,7 @@ interface OrderItem {
 interface Order {
   id: string;
   orderNumber: string;
-  status: 'DRAFT' | 'NEW' | 'ASSEMBLY' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED';
+  status: 'DRAFT' | 'NEW' | 'ACCEPTED' | 'ASSEMBLY' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED';
   totalPacks: number;
   totalBlocks: number;
   totalCases: number;
@@ -128,11 +132,13 @@ export default function SellerDashboard() {
   // Filtering states for Orders
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [timeFilter, setTimeFilter] = useState<'ALL' | 'TODAY' | 'WEEK' | 'CUSTOM'>('ALL');
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('ALL');
   const [draftStartDate, setDraftStartDate] = useState('');
   const [draftEndDate, setDraftEndDate] = useState('');
   const [appliedStartDate, setAppliedStartDate] = useState('');
   const [appliedEndDate, setAppliedEndDate] = useState('');
+  const [deletingDraftOrder, setDeletingDraftOrder] = useState<Order | null>(null);
+  const [isDeletingDraft, setIsDeletingDraft] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
   const toggleOrderExpand = (orderId: string) => {
@@ -403,41 +409,28 @@ export default function SellerDashboard() {
     }
   };
 
-  const handleApplyDateFilter = () => {
-    if (draftStartDate && draftEndDate && draftStartDate > draftEndDate) {
-      showToast('Дата "От" не может быть позже даты "До"', 'error');
-      return;
+  const handleDeleteDraft = async () => {
+    if (!deletingDraftOrder) return;
+    setIsDeletingDraft(true);
+    try {
+      const res = await fetch(`/api/orders?id=${deletingDraftOrder.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || t('orders.deleteDraftError'));
+      }
+      showToast(t('orders.draftDeletedSuccess'), 'success');
+      setOrders(prev => prev.filter(o => o.id !== deletingDraftOrder.id));
+      setTotalOrders(prev => Math.max(0, prev - 1));
+      setDeletingDraftOrder(null);
+    } catch (err: any) {
+      showToast(err.message || t('orders.deleteDraftError'), 'error');
+    } finally {
+      setIsDeletingDraft(false);
     }
-    setAppliedStartDate(draftStartDate);
-    setAppliedEndDate(draftEndDate);
-    setTimeFilter('CUSTOM');
-    setCurrentPage(1);
-    setExpandedOrders(new Set());
-    loadAllOrders(draftStartDate, draftEndDate, 1, pageSize, statusFilter);
   };
 
-  const handleResetDateFilter = () => {
-    setDraftStartDate('');
-    setDraftEndDate('');
-    setAppliedStartDate('');
-    setAppliedEndDate('');
-    setTimeFilter('ALL');
-    setCurrentPage(1);
-    setExpandedOrders(new Set());
-    loadAllOrders('', '', 1, pageSize, statusFilter);
-  };
-
-  const handlePresetPeriod = (preset: 'ALL' | 'TODAY' | 'WEEK') => {
-    setTimeFilter(preset);
-    let start = '';
-    let end = '';
-    if (preset === 'TODAY') {
-      start = getTashkentTodayString();
-      end = getTashkentTodayString();
-    } else if (preset === 'WEEK') {
-      start = getTashkentWeekAgoString();
-      end = getTashkentTodayString();
-    }
+  const handleSelectPeriodPreset = (preset: PeriodPreset, start: string, end: string) => {
+    setPeriodPreset(preset);
     setDraftStartDate(start);
     setDraftEndDate(end);
     setAppliedStartDate(start);
@@ -445,6 +438,28 @@ export default function SellerDashboard() {
     setCurrentPage(1);
     setExpandedOrders(new Set());
     loadAllOrders(start, end, 1, pageSize, statusFilter);
+  };
+
+  const handleApplyCustomPeriod = (start: string, end: string) => {
+    setPeriodPreset('CUSTOM');
+    setDraftStartDate(start);
+    setDraftEndDate(end);
+    setAppliedStartDate(start);
+    setAppliedEndDate(end);
+    setCurrentPage(1);
+    setExpandedOrders(new Set());
+    loadAllOrders(start, end, 1, pageSize, statusFilter);
+  };
+
+  const handleResetPeriod = () => {
+    setPeriodPreset('ALL');
+    setDraftStartDate('');
+    setDraftEndDate('');
+    setAppliedStartDate('');
+    setAppliedEndDate('');
+    setCurrentPage(1);
+    setExpandedOrders(new Set());
+    loadAllOrders('', '', 1, pageSize, statusFilter);
   };
 
   const handleStatusFilterChange = (status: string) => {
@@ -885,60 +900,14 @@ export default function SellerDashboard() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0">
-                <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5">{t('seller.period')}:</span>
-                {(['ALL', 'TODAY', 'WEEK'] as const).map(time => (
-                  <button
-                    key={time}
-                    onClick={() => handlePresetPeriod(time)}
-                    className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all ${
-                      timeFilter === time 
-                        ? 'bg-cyan-600 text-white shadow-glass-sm' 
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {time === 'ALL' ? t('common.all') : time === 'TODAY' ? t('seller.today') : t('seller.week')}
-                  </button>
-                ))}
-              </div>
-
-              {/* Date Filter Inputs - ALWAYS VISIBLE */}
-              <div className="flex flex-wrap items-center gap-2 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-400 font-medium">{t('common.from')}:</span>
-                  <input
-                    type="date"
-                    value={draftStartDate}
-                    onChange={(e) => setDraftStartDate(e.target.value)}
-                    className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-400 font-medium">{t('common.to')}:</span>
-                  <input
-                    type="date"
-                    value={draftEndDate}
-                    onChange={(e) => setDraftEndDate(e.target.value)}
-                    className="bg-slate-900/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleApplyDateFilter}
-                  className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-glass-sm"
-                >
-                  {t('common.apply')}
-                </button>
-                {(draftStartDate || draftEndDate || appliedStartDate || appliedEndDate) && (
-                  <button
-                    type="button"
-                    onClick={handleResetDateFilter}
-                    className="px-2 py-1 text-[10px] font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all"
-                  >
-                    {t('common.reset')}
-                  </button>
-                )}
-              </div>
+              <OrderPeriodFilter
+                startDate={appliedStartDate}
+                endDate={appliedEndDate}
+                activePreset={periodPreset}
+                onSelectPreset={handleSelectPeriodPreset}
+                onApplyCustom={handleApplyCustomPeriod}
+                onReset={handleResetPeriod}
+              />
             </div>
           </div>
 
@@ -1244,9 +1213,20 @@ export default function SellerDashboard() {
                                 <span>Excel</span>
                               </a>
                             ) : order.status === 'DRAFT' ? (
-                              <span className="text-slate-500 text-[10px] py-1 px-2.5 border border-dashed border-white/5 rounded-lg whitespace-nowrap">
-                                {t('orders.statusDraft')}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-500 text-[10px] py-1 px-2.5 border border-dashed border-white/5 rounded-lg whitespace-nowrap">
+                                  {t('orders.statusDraft')}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingDraftOrder(order)}
+                                  className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-500/20 border border-rose-500/20 transition-all flex items-center gap-1.5 text-xs font-bold"
+                                  title={t('orders.deleteDraft')}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <span>{t('orders.deleteDraft')}</span>
+                                </button>
+                              </div>
                             ) : (
                               <span className="text-red-400 bg-red-500/10 border border-red-500/20 text-[10px] font-bold py-1 px-2.5 rounded-lg whitespace-nowrap">
                                 {t('seller.noExcel')}
@@ -2061,6 +2041,15 @@ export default function SellerDashboard() {
         uploadedAt={previewDoc?.uploadedAt}
         fileSize={previewDoc?.fileSize}
         canDownload={canDownloadTransportDocs}
+      />
+
+      {/* Delete Draft Modal */}
+      <DeleteDraftModal
+        isOpen={!!deletingDraftOrder}
+        orderNumber={deletingDraftOrder?.orderNumber}
+        isDeleting={isDeletingDraft}
+        onConfirm={handleDeleteDraft}
+        onCancel={() => setDeletingDraftOrder(null)}
       />
     </div>
   );

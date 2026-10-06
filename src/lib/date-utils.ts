@@ -54,3 +54,97 @@ export function getTashkentStartOfNextDay(dateStr: string): Date | null {
   const d = new Date(Date.UTC(year, month - 1, day + 1, -5, 0, 0, 0));
   return isNaN(d.getTime()) ? null : d;
 }
+
+export type PeriodPreset =
+  | 'ALL'
+  | 'TODAY'
+  | 'YESTERDAY'
+  | 'LAST_7_DAYS'
+  | 'LAST_30_DAYS'
+  | 'THIS_MONTH'
+  | 'PREVIOUS_MONTH'
+  | 'CUSTOM';
+
+/**
+ * Returns date string 'YYYY-MM-DD' yesterday in Asia/Tashkent
+ */
+export function getTashkentYesterdayString(now: Date = new Date()): string {
+  const todayStr = getTashkentTodayString(now);
+  const [y, m, d] = todayStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d - 1));
+  const year = dt.getUTCFullYear();
+  const month = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(dt.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Returns date string 'YYYY-MM-DD' N calendar days ago (inclusive count) in Asia/Tashkent
+ */
+export function getTashkentDaysAgoString(daysCount: number, now: Date = new Date()): string {
+  const todayStr = getTashkentTodayString(now);
+  const [y, m, d] = todayStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d - (daysCount - 1)));
+  const year = dt.getUTCFullYear();
+  const month = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(dt.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Returns start & end date strings for current month in Asia/Tashkent
+ */
+export function getTashkentThisMonthRange(now: Date = new Date()): { startDate: string; endDate: string } {
+  const todayStr = getTashkentTodayString(now);
+  const [y, m] = todayStr.split('-').map(Number);
+  const monthStr = String(m).padStart(2, '0');
+  return {
+    startDate: `${y}-${monthStr}-01`,
+    endDate: todayStr
+  };
+}
+
+/**
+ * Returns start & end date strings for previous month in Asia/Tashkent
+ */
+export function getTashkentPreviousMonthRange(now: Date = new Date()): { startDate: string; endDate: string } {
+  const todayStr = getTashkentTodayString(now);
+  const [y, m] = todayStr.split('-').map(Number);
+  const prevDate = new Date(Date.UTC(y, m - 2, 1));
+  const prevYear = prevDate.getUTCFullYear();
+  const prevMonth = prevDate.getUTCMonth() + 1;
+  const lastDay = new Date(Date.UTC(prevYear, prevMonth, 0)).getUTCDate();
+  const prevMonthStr = String(prevMonth).padStart(2, '0');
+  const lastDayStr = String(lastDay).padStart(2, '0');
+  return {
+    startDate: `${prevYear}-${prevMonthStr}-01`,
+    endDate: `${prevYear}-${prevMonthStr}-${lastDayStr}`
+  };
+}
+
+/**
+ * Resolves standard date range for an order history preset in Asia/Tashkent
+ */
+export function getTashkentPresetRange(preset: PeriodPreset, now: Date = new Date()): { startDate: string; endDate: string } {
+  const today = getTashkentTodayString(now);
+  switch (preset) {
+    case 'TODAY':
+      return { startDate: today, endDate: today };
+    case 'YESTERDAY': {
+      const yesterday = getTashkentYesterdayString(now);
+      return { startDate: yesterday, endDate: yesterday };
+    }
+    case 'LAST_7_DAYS':
+      return { startDate: getTashkentDaysAgoString(7, now), endDate: today };
+    case 'LAST_30_DAYS':
+      return { startDate: getTashkentDaysAgoString(30, now), endDate: today };
+    case 'THIS_MONTH':
+      return getTashkentThisMonthRange(now);
+    case 'PREVIOUS_MONTH':
+      return getTashkentPreviousMonthRange(now);
+    case 'ALL':
+    default:
+      return { startDate: '', endDate: '' };
+  }
+}
+

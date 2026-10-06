@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { 
   LayoutDashboard, ShoppingBag, Users, FolderCheck, FileText, 
   ArrowRight, ShieldCheck, Database, Calendar, CheckCircle2, 
-  Clock, AlertCircle, Banknote, Layers, Package, Loader2
+  Clock, AlertCircle, Banknote, Layers, Package, Loader2,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useTranslation } from '@/i18n/context';
 
@@ -15,6 +16,10 @@ interface Order {
   totalPrice: number;
   status: string;
   createdAt: string;
+  totalCases?: number;
+  totalBlocks?: number;
+  totalPacks?: number;
+  items?: any[];
   customer: {
     name: string;
   };
@@ -43,7 +48,20 @@ export default function AdminOverview() {
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [latestOrders, setLatestOrders] = useState<Order[]>([]);
   const [latestLogs, setLatestLogs] = useState<AuditLog[]>([]);
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+
+  const toggleOrderExpand = (orderId: string) => {
+    setExpandedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     async function loadOverviewData() {
@@ -236,19 +254,95 @@ export default function AdminOverview() {
                   hour: '2-digit',
                   minute: '2-digit'
                 });
+                const isExpanded = expandedOrders.has(order.id);
+
                 return (
-                  <div key={order.id} className="bg-slate-900/30 border border-white/5 rounded-xl p-3 flex justify-between items-center text-xs">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-300">{order.orderNumber}</span>
-                        {renderStatusBadge(order.status)}
+                  <div key={order.id} className="bg-slate-900/40 border border-white/5 rounded-xl overflow-hidden transition-all hover:border-white/10">
+                    <div
+                      onClick={() => toggleOrderExpand(order.id)}
+                      className="p-3 flex justify-between items-center text-xs cursor-pointer select-none hover:bg-white/[0.02] transition-colors"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-300">{order.orderNumber}</span>
+                          {renderStatusBadge(order.status)}
+                        </div>
+                        <span className="block text-[10px] text-slate-500 font-semibold mt-1">
+                          Клиент: {order.customer.name} ({date})
+                        </span>
                       </div>
-                      <span className="block text-[10px] text-slate-500 font-semibold mt-1">
-                        Клиент: {order.customer.name} ({date})
-                      </span>
+
+                      <div className="flex items-center gap-3">
+                        <span className="font-extrabold text-emerald-400">{order.totalPrice.toLocaleString()} UZS</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleOrderExpand(order.id);
+                          }}
+                          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                          title={isExpanded ? 'Свернуть' : 'Развернуть'}
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
                     </div>
 
-                    <span className="font-extrabold text-emerald-400">{order.totalPrice.toLocaleString()} UZS</span>
+                    {isExpanded && (
+                      <div className="border-t border-white/5 p-3 bg-slate-950/30 text-xs space-y-2 animate-fade-in">
+                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                          {order.totalCases !== undefined && (
+                            <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-semibold">
+                              {order.totalCases} кор.
+                            </span>
+                          )}
+                          {order.totalBlocks !== undefined && (
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-semibold">
+                              {order.totalBlocks} бл.
+                            </span>
+                          )}
+                          {order.items && order.items.length > 0 && (
+                            <span className="px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 font-semibold">
+                              {order.items.length} поз.
+                            </span>
+                          )}
+                        </div>
+
+                        {order.items && order.items.length > 0 && (
+                          <div className="pt-1 space-y-1">
+                            {order.items.slice(0, 3).map((item: any, idx: number) => (
+                              <div key={idx} className="flex justify-between items-center text-[11px] text-slate-400">
+                                <span className="truncate max-w-[200px] text-slate-300">
+                                  {item.productNameSnapshot || item.product?.name || item.skuSnapshot || 'Товар'}
+                                </span>
+                                <span className="font-mono text-slate-400">
+                                  {item.quantityPacks || item.quantityCases ? `${item.quantityCases || 0} кор.` : ''}
+                                </span>
+                              </div>
+                            ))}
+                            {order.items.length > 3 && (
+                              <span className="text-[10px] text-slate-500 italic">
+                                и еще {order.items.length - 3} поз...
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="pt-1 flex justify-end">
+                          <Link
+                            href="/seller"
+                            className="text-[11px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1"
+                          >
+                            <span>Перейти к журналу</span>
+                            <ArrowRight className="h-3 w-3" />
+                          </Link>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

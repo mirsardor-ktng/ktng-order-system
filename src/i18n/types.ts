@@ -165,6 +165,25 @@ export interface OrdersTranslations {
   commentAdded: string;
   commentAddError: string;
   loadingHistory: string;
+  periodAll: string;
+  periodToday: string;
+  periodYesterday: string;
+  periodLast7Days: string;
+  periodLast30Days: string;
+  periodThisMonth: string;
+  periodPreviousMonth: string;
+  periodCustom: string;
+  periodFrom: string;
+  periodTo: string;
+  applyFilter: string;
+  resetFilter: string;
+  deleteDraft: string;
+  deleteDraftConfirmTitle: string;
+  deleteDraftConfirmMessage: string;
+  draftDeletedSuccess: string;
+  deleteDraftError: string;
+  expand: string;
+  collapse: string;
 }
 
 export interface UnitsTranslations {
