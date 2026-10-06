@@ -164,6 +164,7 @@ export const en: Dictionary = {
     loadingHistory: 'Loading history...',
     periodAll: 'All',
     periodToday: 'Today',
+    periodWeek: 'Week',
     periodYesterday: 'Yesterday',
     periodLast7Days: 'Last 7 days',
     periodLast30Days: 'Last 30 days',

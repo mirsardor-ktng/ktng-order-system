@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Calendar, Filter, X, Check } from 'lucide-react';
+import { Calendar, Check, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/context';
 import { PeriodPreset, getTashkentPresetRange } from '@/lib/date-utils';
 
@@ -18,11 +18,7 @@ export interface OrderPeriodFilterProps {
 const PRESET_KEYS: Array<{ id: PeriodPreset; translationKey: string }> = [
   { id: 'ALL', translationKey: 'orders.periodAll' },
   { id: 'TODAY', translationKey: 'orders.periodToday' },
-  { id: 'YESTERDAY', translationKey: 'orders.periodYesterday' },
-  { id: 'LAST_7_DAYS', translationKey: 'orders.periodLast7Days' },
-  { id: 'LAST_30_DAYS', translationKey: 'orders.periodLast30Days' },
-  { id: 'THIS_MONTH', translationKey: 'orders.periodThisMonth' },
-  { id: 'PREVIOUS_MONTH', translationKey: 'orders.periodPreviousMonth' },
+  { id: 'WEEK', translationKey: 'orders.periodWeek' },
   { id: 'CUSTOM', translationKey: 'orders.periodCustom' },
 ];
 
@@ -67,7 +63,9 @@ export default function OrderPeriodFilter({
 
   const handleApplyCustomDates = () => {
     if (draftStart && draftEnd && draftStart > draftEnd) {
-      setValidationError('Дата "От" не может быть позже даты "До"');
+      setValidationError(
+        `${t('common.from') || t('orders.periodFrom')} > ${t('common.to') || t('orders.periodTo')}`
+      );
       return;
     }
     setValidationError(null);
@@ -81,14 +79,15 @@ export default function OrderPeriodFilter({
     onReset();
   };
 
+  const isFiltered = activePreset !== 'ALL' || !!startDate || !!endDate;
+
   return (
-    <div className={`space-y-3 ${className}`}>
-      {/* Preset Buttons Bar */}
-      <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-2xl border border-white/5">
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-slate-400 text-xs font-bold uppercase tracking-wider shrink-0">
-          <Calendar className="h-3.5 w-3.5 text-indigo-400" />
-          <span>{t('seller.period')}</span>
-        </div>
+    <div className={`space-y-2 ${className}`}>
+      {/* 4 Presets: ALL, TODAY, WEEK, and CUSTOM */}
+      <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-white/5 flex-shrink-0">
+        <span className="text-[9px] text-slate-500 font-bold uppercase px-1.5 whitespace-nowrap">
+          {t('seller.period')}:
+        </span>
 
         {PRESET_KEYS.map(({ id, translationKey }) => {
           const isActive = activePreset === id;
@@ -97,34 +96,37 @@ export default function OrderPeriodFilter({
               key={id}
               type="button"
               onClick={() => handlePresetClick(id)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all shrink-0 ${
+              className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 ${
                 isActive
-                  ? 'bg-primary text-white shadow-glass-sm font-extrabold'
+                  ? 'bg-cyan-600 text-white shadow-glass-sm'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              {t(translationKey)}
+              {id === 'CUSTOM' && <Calendar className="h-3 w-3 shrink-0" />}
+              <span>{t(translationKey)}</span>
             </button>
           );
         })}
 
-        {activePreset !== 'ALL' && (
+        {isFiltered && activePreset !== 'CUSTOM' && (
           <button
             type="button"
             onClick={handleResetClick}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all shrink-0 ml-auto"
-            title={t('orders.resetFilter')}
+            className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all ml-auto"
+            title={t('common.reset') || t('orders.resetFilter')}
           >
-            <X className="h-4 w-4" />
+            <X className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
 
       {/* Custom Date Inputs (shown when CUSTOM preset is selected) */}
       {activePreset === 'CUSTOM' && (
-        <div className="flex flex-wrap items-center gap-3 bg-slate-900/60 p-3 rounded-xl border border-white/5 animate-fade-in">
-          <div className="flex items-center gap-2 text-xs text-slate-300">
-            <span className="font-semibold text-slate-400">{t('orders.periodFrom')}:</span>
+        <div className="flex flex-wrap items-center gap-2 bg-slate-900/80 p-2 rounded-xl border border-white/10 text-xs animate-fade-in">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+              {t('common.from') || t('orders.periodFrom')}:
+            </span>
             <input
               type="date"
               value={draftStart}
@@ -132,12 +134,13 @@ export default function OrderPeriodFilter({
                 setDraftStart(e.target.value);
                 setValidationError(null);
               }}
-              className="bg-slate-950/70 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-primary transition-colors"
+              className="bg-slate-950/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
             />
           </div>
-
-          <div className="flex items-center gap-2 text-xs text-slate-300">
-            <span className="font-semibold text-slate-400">{t('orders.periodTo')}:</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+              {t('common.to') || t('orders.periodTo')}:
+            </span>
             <input
               type="date"
               value={draftEnd}
@@ -145,29 +148,29 @@ export default function OrderPeriodFilter({
                 setDraftEnd(e.target.value);
                 setValidationError(null);
               }}
-              className="bg-slate-950/70 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-primary transition-colors"
+              className="bg-slate-950/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500"
             />
           </div>
-
           <button
             type="button"
             onClick={handleApplyCustomDates}
-            className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-xs"
+            className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-glass-sm flex items-center gap-1"
           >
-            <Check className="h-3.5 w-3.5" />
-            <span>{t('orders.applyFilter')}</span>
+            <Check className="h-3 w-3" />
+            <span>{t('common.apply') || t('orders.applyFilter')}</span>
           </button>
-
           <button
             type="button"
             onClick={handleResetClick}
-            className="text-xs text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-white/5 hover:bg-white/5 transition-colors"
+            className="px-2 py-1 text-[10px] font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all flex items-center gap-1"
+            title={t('common.reset') || t('orders.resetFilter')}
           >
-            {t('orders.resetFilter')}
+            <X className="h-3 w-3" />
+            <span>{t('common.reset') || t('orders.resetFilter')}</span>
           </button>
 
           {validationError && (
-            <span className="text-xs text-rose-400 font-semibold w-full sm:w-auto">
+            <span className="text-[10px] text-rose-400 font-semibold w-full sm:w-auto">
               {validationError}
             </span>
           )}

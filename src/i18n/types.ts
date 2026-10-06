@@ -167,6 +167,7 @@ export interface OrdersTranslations {
   loadingHistory: string;
   periodAll: string;
   periodToday: string;
+  periodWeek: string;
   periodYesterday: string;
   periodLast7Days: string;
   periodLast30Days: string;

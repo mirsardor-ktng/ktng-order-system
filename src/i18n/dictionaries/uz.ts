@@ -164,6 +164,7 @@ export const uz: Dictionary = {
     loadingHistory: 'Tarix yuklanmoqda...',
     periodAll: 'Barchasi',
     periodToday: 'Bugun',
+    periodWeek: 'Hafta',
     periodYesterday: 'Kecha',
     periodLast7Days: 'Oxirgi 7 kun',
     periodLast30Days: 'Oxirgi 30 kun',

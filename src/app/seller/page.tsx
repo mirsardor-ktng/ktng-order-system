@@ -431,6 +431,16 @@ export default function SellerDashboard() {
 
   const handleSelectPeriodPreset = (preset: PeriodPreset, start: string, end: string) => {
     setPeriodPreset(preset);
+    if (preset === 'CUSTOM') {
+      if (start || end) {
+        setAppliedStartDate(start);
+        setAppliedEndDate(end);
+        setCurrentPage(1);
+        setExpandedOrders(new Set());
+        loadAllOrders(start, end, 1, pageSize, statusFilter);
+      }
+      return;
+    }
     setDraftStartDate(start);
     setDraftEndDate(end);
     setAppliedStartDate(start);

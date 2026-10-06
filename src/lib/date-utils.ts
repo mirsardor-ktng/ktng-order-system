@@ -58,12 +58,13 @@ export function getTashkentStartOfNextDay(dateStr: string): Date | null {
 export type PeriodPreset =
   | 'ALL'
   | 'TODAY'
+  | 'WEEK'
+  | 'CUSTOM'
   | 'YESTERDAY'
   | 'LAST_7_DAYS'
   | 'LAST_30_DAYS'
   | 'THIS_MONTH'
-  | 'PREVIOUS_MONTH'
-  | 'CUSTOM';
+  | 'PREVIOUS_MONTH';
 
 /**
  * Returns date string 'YYYY-MM-DD' yesterday in Asia/Tashkent
@@ -130,6 +131,8 @@ export function getTashkentPresetRange(preset: PeriodPreset, now: Date = new Dat
   switch (preset) {
     case 'TODAY':
       return { startDate: today, endDate: today };
+    case 'WEEK':
+      return { startDate: getTashkentWeekAgoString(now), endDate: today };
     case 'YESTERDAY': {
       const yesterday = getTashkentYesterdayString(now);
       return { startDate: yesterday, endDate: yesterday };

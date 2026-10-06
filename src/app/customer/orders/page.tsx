@@ -415,6 +415,16 @@ function CustomerOrdersContent() {
         activePreset={periodPreset}
         onSelectPreset={(preset, start, end) => {
           setPeriodPreset(preset);
+          if (preset === 'CUSTOM') {
+            if (start || end) {
+              setAppliedStartDate(start);
+              setAppliedEndDate(end);
+              setPage(1);
+              setExpandedOrders(new Set());
+              loadOrders(1, false, start, end);
+            }
+            return;
+          }
           setAppliedStartDate(start);
           setAppliedEndDate(end);
           setPage(1);
