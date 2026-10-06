@@ -113,8 +113,8 @@ Direct measurement via `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` on Supabase:
 
 ### Why Region Effect is Dominant:
 1. When Vercel functions execute in `iad1` (USA) while Supabase is in `ap-southeast-1` (Singapore), every single query incurs a mandatory physical transit time of **~126 ms**.
-2. An order creation operation performs **25 database queries**. In `iad1`, this guarantees `25 × 126 ms = 3,150 ms` of idle network waiting inside an open database transaction.
-3. In `sin1` (Singapore), the Vercel function and Supabase database share the same cloud data center metro region. Network transit between function and database drops to **< 2 ms**. Thus, `25 × 2 ms = 50 ms`, collapsing total transaction duration from 3.5s to 0.28s.
+2. An order creation operation performs **multiple database round-trips**. In `iad1`, this guarantees significant idle network waiting inside an open database transaction.
+3. In `sin1` (Singapore), the Vercel function and Supabase database share the same cloud data center metro region. Network transit between function and database drops to **< 2 ms**, collapsing total transaction duration from 3.5s to 0.28s.
 
 ---
 
@@ -158,7 +158,7 @@ Network overhead per database round-trip drops from **~126 ms down to < 2 ms** (
 In both regions, zero P2024 connection exhaustion errors occurred (`count = 0`). However, Region B reduces the risk of connection pool starvation by an order of magnitude because connection hold durations inside transactions dropped from >7,000 ms to <300 ms.
 
 ### Question 7: Does Singapore improve browsing performance?
-Yes. Browsing p95 latency under 10–30 concurrent users drops from **15,988–34,678 ms down to 468–497 ms (-96.9% to -98.6%)**. Completed browsing request throughput increased up to **9.2x**.
+Yes. Browsing p95 latency under 10–30 concurrent users drops from **15,988–34,678 ms down to 468–497 ms (-96.9% to -98.6%)**. Completed browsing request throughput increased up to **9.2x observed request throughput under the tested k6 workload**.
 
 ### Question 8: Is moving the production deployment to Singapore justified?
 **Yes, overwhelmingly so.** Moving Vercel Functions to Singapore fulfills every criterion for a "Strong Case" defined in Section 21 of the specification:
@@ -174,7 +174,7 @@ Yes. Browsing p95 latency under 10–30 concurrent users drops from **15,988–3
 ### `MOVE TO SINGAPORE`
 
 **Rationale:**
-The benchmark results establish with mathematical certainty that intercontinental WAN latency between Vercel (`iad1` in the US) and Supabase (`ap-southeast-1` in Singapore) was the single largest latency penalty in the entire architecture. 
+The benchmark results establish with strong experimental evidence that intercontinental WAN latency between Vercel (`iad1` in the US) and Supabase (`ap-southeast-1` in Singapore) was the single largest latency penalty in the entire architecture. 
 
 By adding a 3-line `vercel.json` configuration:
 ```json
@@ -183,7 +183,7 @@ By adding a 3-line `vercel.json` configuration:
 }
 ```
 the application achieves:
-1. **~10x throughput multiplier** for concurrent operations.
+1. **~10x throughput multiplier** for concurrent operations under tested workloads, substantially reducing the primary observed latency and connection-hold bottleneck.
 2. **~60x reduction in order transaction hold time** (from 21s down to 280ms).
 3. **88.8% drop in order history latency** without changing a single line of business logic or database schema.
 
