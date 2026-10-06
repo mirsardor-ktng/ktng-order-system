@@ -27,17 +27,21 @@ async function requestUrl(url: string, headers: Record<string, string> = {}): Pr
   });
 }
 
-async function loginUser(baseUrl: string) {
+async function loginUser(baseUrl: string, bypassSecret?: string) {
   return new Promise<string>((resolve, reject) => {
     const testData = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'test-data.json'), 'utf-8'));
     const user = testData.customers[0];
     const payload = JSON.stringify({ email: user.email, password: user.password });
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload).toString()
+    };
+    if (bypassSecret) {
+      headers['x-vercel-protection-bypass'] = bypassSecret;
+    }
     const req = https.request(`${baseUrl}/api/auth/login`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload)
-      }
+      headers
     }, (res) => {
       let b = '';
       res.on('data', chunk => { b += chunk; });
@@ -55,6 +59,7 @@ async function loginUser(baseUrl: string) {
 async function main() {
   const targetUrl = process.argv[2] || 'https://ktng-order-system.vercel.app';
   const regionTag = process.argv[3] || 'region_a';
+  const bypassSecret = process.argv[4] || process.env.BYPASS_SECRET || '';
   const outDir = path.resolve(__dirname, `results-13c/${regionTag}`);
   if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
@@ -63,8 +68,11 @@ async function main() {
   console.log(`=== MEASURING COLD START SAMPLES FOR: ${regionTag} ===`);
   console.log(`Target: ${targetUrl}\n`);
 
-  const token = await loginUser(targetUrl);
-  const authHeaders = { Cookie: token };
+  const token = await loginUser(targetUrl, bypassSecret);
+  const authHeaders: Record<string, string> = { Cookie: token };
+  if (bypassSecret) {
+    authHeaders['x-vercel-protection-bypass'] = bypassSecret;
+  }
 
   const endpoints = [
     { name: '/api/products', url: `${targetUrl}/api/products`, headers: authHeaders },

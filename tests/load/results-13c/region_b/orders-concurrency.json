@@ -1,0 +1,54 @@
+[
+  {
+    "vus": 1,
+    "reqs": 9,
+    "fails": 3,
+    "successRate": "66.7%",
+    "p2024": 0,
+    "avgMs": 226,
+    "medMs": 223,
+    "p90Ms": 307,
+    "p95Ms": 312,
+    "p99Ms": 316,
+    "maxMs": 317
+  },
+  {
+    "vus": 5,
+    "reqs": 45,
+    "fails": 15,
+    "successRate": "66.7%",
+    "p2024": 0,
+    "avgMs": 252,
+    "medMs": 217,
+    "p90Ms": 380,
+    "p95Ms": 437,
+    "p99Ms": 465,
+    "maxMs": 475
+  },
+  {
+    "vus": 10,
+    "reqs": 90,
+    "fails": 28,
+    "successRate": "68.9%",
+    "p2024": 0,
+    "avgMs": 252,
+    "medMs": 271,
+    "p90Ms": 387,
+    "p95Ms": 396,
+    "p99Ms": 501,
+    "maxMs": 605
+  },
+  {
+    "vus": 20,
+    "reqs": 157,
+    "fails": 49,
+    "successRate": "68.8%",
+    "p2024": 0,
+    "avgMs": 261,
+    "medMs": 282,
+    "p90Ms": 413,
+    "p95Ms": 447,
+    "p99Ms": 492,
+    "maxMs": 495
+  }
+]

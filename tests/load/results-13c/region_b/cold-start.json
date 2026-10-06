@@ -1,0 +1,32 @@
+[
+  {
+    "endpoint": "/api/products",
+    "sample1": 419.23,
+    "sample2": 784.02,
+    "sample3": 427.18,
+    "sample4": 636.46,
+    "sample5": 497.9,
+    "avgMs": 552.96,
+    "p50Ms": 497.9
+  },
+  {
+    "endpoint": "/api/orders/calculation-config",
+    "sample1": 677.81,
+    "sample2": 387.84,
+    "sample3": 327.9,
+    "sample4": 211.98,
+    "sample5": 209.87,
+    "avgMs": 363.08,
+    "p50Ms": 327.9
+  },
+  {
+    "endpoint": "/api/orders?page=1&pageSize=25",
+    "sample1": 529.06,
+    "sample2": 260.19,
+    "sample3": 471.56,
+    "sample4": 269.43,
+    "sample5": 256.2,
+    "avgMs": 357.29,
+    "p50Ms": 269.43
+  }
+]

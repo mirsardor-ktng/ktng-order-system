@@ -36,6 +36,7 @@ export default function () {
   const headers = {
     'Content-Type': 'application/json',
     'User-Agent': 'k6-load-tester/1.0',
+    ...(__ENV.BYPASS_SECRET ? { 'x-vercel-protection-bypass': __ENV.BYPASS_SECRET } : {}),
   };
 
   // 1. Authenticate if not already authenticated in this VU
@@ -66,7 +67,7 @@ export default function () {
   }
 
   // 2. GET /api/auth/me
-  const meRes = http.get(`${BASE_URL}/api/auth/me`);
+  const meRes = http.get(`${BASE_URL}/api/auth/me`, { headers });
   authMeDuration.add(meRes.timings.duration);
   if (meRes.status === 401) {
     isAuthenticated = false; // Re-login next iteration
@@ -83,7 +84,7 @@ export default function () {
   }
 
   // 3. GET /api/products
-  const prodRes = http.get(`${BASE_URL}/api/products`);
+  const prodRes = http.get(`${BASE_URL}/api/products`, { headers });
   productsDuration.add(prodRes.timings.duration);
   const prodCheck = check(prodRes, {
     'products status is 200': (r) => r.status === 200,
@@ -98,7 +99,7 @@ export default function () {
   }
 
   // 4. GET /api/orders/calculation-config
-  const configRes = http.get(`${BASE_URL}/api/orders/calculation-config`);
+  const configRes = http.get(`${BASE_URL}/api/orders/calculation-config`, { headers });
   calcConfigDuration.add(configRes.timings.duration);
   const configCheck = check(configRes, {
     'calc-config status is 200': (r) => r.status === 200,
@@ -113,7 +114,7 @@ export default function () {
   }
 
   // 5. GET /api/orders?page=1&pageSize=25 (Customer orders history)
-  const ordersRes = http.get(`${BASE_URL}/api/orders?page=1&pageSize=25`);
+  const ordersRes = http.get(`${BASE_URL}/api/orders?page=1&pageSize=25`, { headers });
   ordersHistoryDuration.add(ordersRes.timings.duration);
   const ordersCheck = check(ordersRes, {
     'orders status is 200': (r) => r.status === 200,

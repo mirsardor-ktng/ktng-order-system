@@ -1,0 +1,67 @@
+[
+  {
+    "vus": 1,
+    "reqs": 32,
+    "fails": 12,
+    "successRate": "62.5%",
+    "p2024": 0,
+    "avgMs": 264,
+    "medMs": 229,
+    "p90Ms": 367,
+    "p95Ms": 500,
+    "p99Ms": 510,
+    "maxMs": 513
+  },
+  {
+    "vus": 5,
+    "reqs": 181,
+    "fails": 76,
+    "successRate": "58.0%",
+    "p2024": 0,
+    "avgMs": 247,
+    "medMs": 219,
+    "p90Ms": 382,
+    "p95Ms": 434,
+    "p99Ms": 551,
+    "maxMs": 678
+  },
+  {
+    "vus": 10,
+    "reqs": 336,
+    "fails": 136,
+    "successRate": "59.5%",
+    "p2024": 0,
+    "avgMs": 264,
+    "medMs": 224,
+    "p90Ms": 420,
+    "p95Ms": 497,
+    "p99Ms": 740,
+    "maxMs": 866
+  },
+  {
+    "vus": 20,
+    "reqs": 640,
+    "fails": 260,
+    "successRate": "59.4%",
+    "p2024": 0,
+    "avgMs": 258,
+    "medMs": 223,
+    "p90Ms": 416,
+    "p95Ms": 468,
+    "p99Ms": 741,
+    "maxMs": 1321
+  },
+  {
+    "vus": 30,
+    "reqs": 782,
+    "fails": 297,
+    "successRate": "62.0%",
+    "p2024": 0,
+    "avgMs": 269,
+    "medMs": 226,
+    "p90Ms": 420,
+    "p95Ms": 487,
+    "p99Ms": 849,
+    "maxMs": 1489
+  }
+]

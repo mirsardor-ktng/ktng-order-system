@@ -83,7 +83,7 @@ async function requestUrl(url: string, options: { method?: string; headers?: Rec
   });
 }
 
-export async function runBenchmarkSuite(targetUrl: string, regionTag: string) {
+export async function runBenchmarkSuite(targetUrl: string, regionTag: string, bypassSecret?: string) {
   console.log(`======================================================================`);
   console.log(`=== STARTING PHASE 13C-A BENCHMARK FOR REGION: ${regionTag} ===`);
   console.log(`=== Target URL: ${targetUrl} ===`);
@@ -97,16 +97,22 @@ export async function runBenchmarkSuite(targetUrl: string, regionTag: string) {
   const testData = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'test-data.json'), 'utf-8'));
   const testCustomer = testData.customers[0];
 
+  const defaultHeaders: Record<string, string> = {};
+  if (bypassSecret) {
+    defaultHeaders['x-vercel-protection-bypass'] = bypassSecret;
+  }
+
   // 1. Initial login to acquire session cookie
   console.log('--- 1. Authenticating test user ---');
   const loginRes = await requestUrl(`${targetUrl}/api/auth/login`, {
     method: 'POST',
+    headers: defaultHeaders,
     body: JSON.stringify({ email: testCustomer.email, password: testCustomer.password })
   });
 
   const rawCookie = loginRes.headers['set-cookie'] || '';
   const authToken = rawCookie.split(';')[0];
-  const authHeaders = { Cookie: authToken };
+  const authHeaders = { Cookie: authToken, ...defaultHeaders };
 
   console.log(`Login status: ${loginRes.status} | Duration: ${loginRes.duration}ms`);
   console.log(`X-Vercel-Id: ${loginRes.headers['x-vercel-id'] || 'None'}`);
@@ -200,7 +206,7 @@ export async function runBenchmarkSuite(targetUrl: string, regionTag: string) {
       cwd: path.resolve(__dirname),
       encoding: 'utf-8',
       stdio: 'pipe',
-      env: { ...process.env, TARGET_URL: targetUrl }
+      env: { ...process.env, TARGET_URL: targetUrl, ...(bypassSecret ? { BYPASS_SECRET: bypassSecret } : {}) }
     });
 
     fs.writeFileSync(logExportPath, (k6Res.stdout || '') + '\n' + (k6Res.stderr || ''), 'utf-8');
@@ -240,6 +246,10 @@ export async function runBenchmarkSuite(targetUrl: string, regionTag: string) {
   const orderResults: any[] = [];
 
   for (const vus of orderTiers) {
+    // Clean up and reset before each tier starts
+    execSync('npx tsx scripts/load/cleanup-test-data.ts', { stdio: 'pipe' });
+    spawnSync('powershell', ['-Command', 'Start-Sleep -Seconds 1']);
+
     // Record initial stock
     const pBefore = await prisma.product.findUnique({ where: { sku: 'LOADTEST-SKU-1' } });
     const stockBefore = pBefore?.stockPacks || 0;
@@ -262,7 +272,7 @@ export async function runBenchmarkSuite(targetUrl: string, regionTag: string) {
       cwd: path.resolve(__dirname),
       encoding: 'utf-8',
       stdio: 'pipe',
-      env: { ...process.env, TARGET_URL: targetUrl }
+      env: { ...process.env, TARGET_URL: targetUrl, ...(bypassSecret ? { BYPASS_SECRET: bypassSecret } : {}) }
     });
 
     fs.writeFileSync(logExportPath, (k6Res.stdout || '') + '\n' + (k6Res.stderr || ''), 'utf-8');
@@ -333,8 +343,9 @@ export async function runBenchmarkSuite(targetUrl: string, regionTag: string) {
 if (require.main === module) {
   const targetUrl = process.argv[2] || process.env.TARGET_URL || 'https://ktng-order-system.vercel.app';
   const regionTag = process.argv[3] || process.env.REGION_TAG || 'region_a';
+  const bypassSecret = process.argv[4] || process.env.BYPASS_SECRET || '';
 
-  runBenchmarkSuite(targetUrl, regionTag)
+  runBenchmarkSuite(targetUrl, regionTag, bypassSecret)
     .then(() => process.exit(0))
     .catch((err) => {
       console.error('Benchmark suite error:', err);

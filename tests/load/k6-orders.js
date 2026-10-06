@@ -33,6 +33,7 @@ export default function () {
   const headers = {
     'Content-Type': 'application/json',
     'User-Agent': 'k6-load-tester/1.0',
+    ...(__ENV.BYPASS_SECRET ? { 'x-vercel-protection-bypass': __ENV.BYPASS_SECRET } : {}),
   };
 
   // 1. Login once per VU session
