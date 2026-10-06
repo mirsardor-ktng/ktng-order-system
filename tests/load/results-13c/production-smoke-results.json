@@ -1,0 +1,72 @@
+[
+  {
+    "test": "Test 1: Login / Session",
+    "result": "PASS",
+    "latencyMs": 886.19,
+    "region": "sin1",
+    "notes": "Status: 200"
+  },
+  {
+    "test": "Test 2: GET /api/products",
+    "result": "PASS",
+    "latencyMs": 278.29,
+    "region": "sin1",
+    "notes": "Status: 200"
+  },
+  {
+    "test": "Test 3: GET /api/orders/calculation-config",
+    "result": "PASS",
+    "latencyMs": 375.28,
+    "region": "sin1",
+    "notes": "Status: 200"
+  },
+  {
+    "test": "Test 4: GET /api/orders?page=1&pageSize=25",
+    "result": "PASS",
+    "latencyMs": 449.16,
+    "region": "sin1",
+    "notes": "Status: 200"
+  },
+  {
+    "test": "Test 5: /customer page",
+    "result": "PASS",
+    "latencyMs": 158.36,
+    "region": "b6wml-1791305255940-f2184dcbdbe7",
+    "notes": "Status: 200"
+  },
+  {
+    "test": "Test 6: Order Creation",
+    "result": "PASS",
+    "latencyMs": 315.75,
+    "region": "sin1",
+    "notes": "OrderNumber: ORD-20261006-164736-111"
+  },
+  {
+    "test": "Test 7: Stock Deduction",
+    "result": "PASS",
+    "latencyMs": 0,
+    "region": "database",
+    "notes": "Stock before: 1000000, after: 999990, deducted: 10 (expected 10)"
+  },
+  {
+    "test": "Test 8: Order Details in DB",
+    "result": "PASS",
+    "latencyMs": 0,
+    "region": "database",
+    "notes": "Status: NEW, Items: 1"
+  },
+  {
+    "test": "Test 9: Excel Processing",
+    "result": "PASS",
+    "latencyMs": 0,
+    "region": "database",
+    "notes": "Documents count: 0"
+  },
+  {
+    "test": "Test 10: Test Order Cleanup",
+    "result": "PASS",
+    "latencyMs": 0,
+    "region": "database",
+    "notes": "Final Stock: 1000000 (Drift: 0)"
+  }
+]
