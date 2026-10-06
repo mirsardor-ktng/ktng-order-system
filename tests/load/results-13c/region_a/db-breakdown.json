@@ -1,0 +1,42 @@
+{
+  "regionTag": "region_a",
+  "pingStats": {
+    "min": 126.07,
+    "med": 126.96,
+    "p95": 1288.77,
+    "max": 1288.77,
+    "avg": 184.98
+  },
+  "dbBreakdown": [
+    {
+      "operation": "User.findUnique",
+      "dbExecMs": 0.268,
+      "clientMedMs": 127.57,
+      "networkOverheadMs": 127.3
+    },
+    {
+      "operation": "Order.count",
+      "dbExecMs": 1.371,
+      "clientMedMs": 127.16,
+      "networkOverheadMs": 125.79
+    },
+    {
+      "operation": "Order.findMany",
+      "dbExecMs": 4.28,
+      "clientMedMs": 129.74,
+      "networkOverheadMs": 125.46
+    },
+    {
+      "operation": "Product lookup",
+      "dbExecMs": 5.16,
+      "clientMedMs": 126.93,
+      "networkOverheadMs": 121.77
+    },
+    {
+      "operation": "Stock deduction SQL",
+      "dbExecMs": 1.499,
+      "clientMedMs": 128.63,
+      "networkOverheadMs": 127.13
+    }
+  ]
+}

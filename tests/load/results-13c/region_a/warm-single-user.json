@@ -1,0 +1,41 @@
+{
+  "products": {
+    "count": 100,
+    "successCount": 100,
+    "failCount": 0,
+    "successRate": "100.0%",
+    "min": 581.17,
+    "max": 3561.71,
+    "avg": 939.44,
+    "p50": 839.35,
+    "p90": 1305.24,
+    "p95": 1454.99,
+    "p99": 3561.71
+  },
+  "calcConfig": {
+    "count": 100,
+    "successCount": 100,
+    "failCount": 0,
+    "successRate": "100.0%",
+    "min": 361.85,
+    "max": 3340.34,
+    "avg": 535.16,
+    "p50": 473.35,
+    "p90": 587.84,
+    "p95": 757.74,
+    "p99": 3340.34
+  },
+  "ordersHistory": {
+    "count": 100,
+    "successCount": 100,
+    "failCount": 0,
+    "successRate": "100.0%",
+    "min": 1461.35,
+    "max": 3017.73,
+    "avg": 1946.93,
+    "p50": 1565.55,
+    "p90": 2796.98,
+    "p95": 2869.5,
+    "p99": 3017.73
+  }
+}
