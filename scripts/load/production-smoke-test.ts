@@ -196,6 +196,9 @@ async function main() {
 
   // Test 10: Cleanup Test Order and Restore Stock
   console.log('10. Cleaning Up Test Order and Verifying Inventory Restore...');
+  if (!createdOrder?.id || typeof createdOrder.id !== 'string' || createdOrder.id.trim() === '') {
+    throw new Error('Refusing cleanup: missing orderId');
+  }
   await prisma.orderItemSku.deleteMany({ where: { orderItem: { orderId: createdOrder.id } } });
   await prisma.orderItem.deleteMany({ where: { orderId: createdOrder.id } });
   await prisma.orderDocument.deleteMany({ where: { orderId: createdOrder.id } });

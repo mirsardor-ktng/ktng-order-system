@@ -252,6 +252,51 @@ export async function listTemplates(): Promise<Array<{ id: string; name: string 
 }
 
 /**
+ * Finds a file by name inside a specific folder in Google Drive (with local fallback).
+ * Returns the most recently modified file metadata if found, or null otherwise.
+ */
+export async function findFileInFolder(
+  fileName: string,
+  folderName: 'Orders' | 'Templates' | 'Users' | 'Logs'
+): Promise<{ id: string; name: string } | null> {
+  const config = await getGDriveConfig();
+
+  if (!config.enabled) {
+    ensureLocalDirs();
+    const filePath = path.join(LOCAL_MOCK_ROOT, folderName, fileName);
+    if (fs.existsSync(filePath)) {
+      return { id: `mock-${fileName}`, name: fileName };
+    }
+    return null;
+  }
+
+  try {
+    const gDrive = getDriveClient(config);
+    const subFolderId = await getOrCreateSubfolder(gDrive, config.folderId, folderName);
+
+    const response = await gDrive.files.list({
+      q: `'${subFolderId}' in parents and name = '${fileName}' and trashed = false`,
+      fields: 'files(id, name, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      spaces: 'drive'
+    });
+
+    const files = response.data.files || [];
+    if (files.length > 0 && files[0].id) {
+      return { id: files[0].id, name: files[0].name || fileName };
+    }
+    return null;
+  } catch (error: any) {
+    console.error(`[GDrive Error] Failed to find file ${fileName} in ${folderName}:`, error);
+    const filePath = path.join(LOCAL_MOCK_ROOT, folderName, fileName);
+    if (fs.existsSync(filePath)) {
+      return { id: `mock-${fileName}`, name: fileName };
+    }
+    return null;
+  }
+}
+
+/**
  * Helper to get or create a folder by name inside the parents folder.
  */
 async function getOrCreateSubfolder(gDrive: any, parentId: string | undefined, folderName: string): Promise<string> {

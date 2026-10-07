@@ -1,4 +1,4 @@
-import { uploadFile, downloadFile, deleteFile } from '../gdrive';
+import { uploadFile, downloadFile, deleteFile, findFileInFolder } from '../gdrive';
 
 export interface IStorageService {
   uploadFile(
@@ -13,6 +13,11 @@ export interface IStorageService {
     fileName: string,
     folderName: 'Orders' | 'Templates' | 'Users' | 'Logs'
   ): Promise<Buffer>;
+
+  findFileInFolder(
+    fileName: string,
+    folderName: 'Orders' | 'Templates' | 'Users' | 'Logs'
+  ): Promise<{ id: string; name: string } | null>;
 
   deleteFile(fileId: string): Promise<boolean>;
 }
@@ -33,6 +38,13 @@ class GoogleDriveStorageService implements IStorageService {
     folderName: 'Orders' | 'Templates' | 'Users' | 'Logs'
   ) {
     return downloadFile(fileId, fileName, folderName);
+  }
+
+  async findFileInFolder(
+    fileName: string,
+    folderName: 'Orders' | 'Templates' | 'Users' | 'Logs'
+  ) {
+    return findFileInFolder(fileName, folderName);
   }
 
   async deleteFile(fileId: string) {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
 import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
-import { uploadFile, downloadFile } from '@/lib/gdrive';
+import { uploadFile, downloadFile, findFileInFolder } from '@/lib/gdrive';
 import { encrypt, decrypt } from '@/lib/security';
 
 /**
@@ -111,11 +111,16 @@ export async function POST(req: NextRequest) {
       const keySetting = await prisma.systemSetting.findUnique({ where: { key: 'BACKUP_ENCRYPTION_KEY' } });
       const pass = keySetting?.value || 'B2BSecureSystemPassphrase2026';
 
+      const fileMeta = await findFileInFolder('users.enc.json', 'Users');
+      if (!fileMeta || !fileMeta.id) {
+        return NextResponse.json({ error: 'Файл резервной копии "users.enc.json" не найден в хранилище.' }, { status: 404 });
+      }
+
       let fileBuffer: Buffer;
       try {
-        fileBuffer = await downloadFile('users.enc.json', 'users.enc.json', 'Users');
-      } catch (err) {
-        return NextResponse.json({ error: 'Файл резервной копии "users.enc.json" не найден в хранилище.' }, { status: 404 });
+        fileBuffer = await downloadFile(fileMeta.id, fileMeta.name, 'Users');
+      } catch (err: any) {
+        return NextResponse.json({ error: `Ошибка загрузки резервной копии: ${err.message}` }, { status: 500 });
       }
 
       const encryptedText = fileBuffer.toString('utf8');

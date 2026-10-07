@@ -17,7 +17,10 @@ async function main() {
     console.log(`Found ${orders.length} load test orders.`);
 
     if (orders.length > 0) {
-      const orderIds = orders.map(o => o.id);
+      const orderIds = orders.map(o => o.id).filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+      if (orderIds.length === 0) {
+        throw new Error('Refusing cleanup: missing orderId');
+      }
 
       await prisma.orderDocument.deleteMany({
         where: { orderId: { in: orderIds } }

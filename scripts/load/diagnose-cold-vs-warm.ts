@@ -121,9 +121,15 @@ async function main() {
   console.log(`   - Warm Create:       ${warmCreateMs.toFixed(2)} ms (primed config)\n`);
 
   // Cleanup the two test orders
-  await prisma.orderItemSku.deleteMany({ where: { orderItem: { orderId: { in: [coldOrderRes.order.id, warmOrderRes.order.id] } } } });
-  await prisma.orderItem.deleteMany({ where: { orderId: { in: [coldOrderRes.order.id, warmOrderRes.order.id] } } });
-  await prisma.order.deleteMany({ where: { id: { in: [coldOrderRes.order.id, warmOrderRes.order.id] } } });
+  const cleanupOrderIds = [coldOrderRes?.order?.id, warmOrderRes?.order?.id].filter(
+    (id): id is string => typeof id === 'string' && id.trim().length > 0
+  );
+  if (cleanupOrderIds.length < 2) {
+    throw new Error('Refusing cleanup: missing orderId');
+  }
+  await prisma.orderItemSku.deleteMany({ where: { orderItem: { orderId: { in: cleanupOrderIds } } } });
+  await prisma.orderItem.deleteMany({ where: { orderId: { in: cleanupOrderIds } } });
+  await prisma.order.deleteMany({ where: { id: { in: cleanupOrderIds } } });
   await prisma.product.update({
     where: { id: testProduct.id },
     data: { stockPacks: { increment: 20 } }
@@ -188,10 +194,13 @@ async function main() {
     console.log(`  Completed ${concurrency} orders: Success: ${successRate} | p50: ${stats.p50}ms | p95: ${stats.p95}ms | Max: ${stats.max}ms | P2024: ${p2024Count}`);
 
     // Clean up created orders
-    if (createdOrderIds.length > 0) {
-      await prisma.orderItemSku.deleteMany({ where: { orderItem: { orderId: { in: createdOrderIds } } } });
-      await prisma.orderItem.deleteMany({ where: { orderId: { in: createdOrderIds } } });
-      await prisma.order.deleteMany({ where: { id: { in: createdOrderIds } } });
+    const validCleanupIds = createdOrderIds.filter(
+      (id): id is string => typeof id === 'string' && id.trim().length > 0
+    );
+    if (validCleanupIds.length > 0) {
+      await prisma.orderItemSku.deleteMany({ where: { orderItem: { orderId: { in: validCleanupIds } } } });
+      await prisma.orderItem.deleteMany({ where: { orderId: { in: validCleanupIds } } });
+      await prisma.order.deleteMany({ where: { id: { in: validCleanupIds } } });
     }
   }
 

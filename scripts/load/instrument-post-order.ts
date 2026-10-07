@@ -426,6 +426,9 @@ async function main() {
 
   // Clean up diagnostic order and restore stock immediately
   console.log('\n--- Cleaning up diagnostic order & restoring stock ---');
+  if (!savedOrder?.id || typeof savedOrder.id !== 'string' || savedOrder.id.trim() === '') {
+    throw new Error('Refusing cleanup: missing orderId');
+  }
   await prisma.orderItemSku.deleteMany({ where: { orderItem: { orderId: savedOrder.id } } });
   await prisma.orderItem.deleteMany({ where: { orderId: savedOrder.id } });
   await prisma.order.delete({ where: { id: savedOrder.id } });
