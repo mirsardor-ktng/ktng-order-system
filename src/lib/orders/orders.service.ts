@@ -1595,8 +1595,8 @@ export class OrdersService {
    * DELETE: Deletes an order if and only if it is in DRAFT status.
    */
   static async deleteDraft(session: JWTPayload, orderId: string, req?: NextRequest) {
-    if (!orderId) {
-      throw new Error('ID заказа не указан.');
+    if (!orderId || typeof orderId !== 'string' || orderId.trim() === '') {
+      throw new Error('Refusing cleanup: missing orderId');
     }
 
     const order = await prisma.order.findUnique({
@@ -1698,6 +1698,10 @@ export class OrdersService {
           const share = totalP > 0 ? (allocPacks / totalP) : 0;
           const lineTotalPrice = Math.round((vi.itemTotalPrice * share) * 100) / 100;
 
+          const unitPrice = vi.originalPrice ?? vi.price ?? 0;
+          const grossVal = Math.round(allocPacks * unitPrice * 100) / 100;
+          const promoDiscount = Math.max(0, Math.round((grossVal - lineTotalPrice) * 100) / 100);
+
           excelItems.push({
             sku: alloc.sku,
             name: alloc.name,
@@ -1710,29 +1714,39 @@ export class OrdersService {
             baseQuantityBlocks: Math.round((vi.baseQuantityBlocks ?? 0) * share),
             bonusQuantityBlocks: Math.round((vi.bonusQuantityBlocks ?? 0) * share),
             totalQuantityBlocks: allocBlocks,
-            price: vi.originalPrice ?? vi.price ?? 0,
-            effectivePrice: vi.effectivePrice ?? vi.originalPrice ?? vi.price ?? 0,
+            price: unitPrice,
+            effectivePrice: vi.effectivePrice ?? unitPrice,
             itemTotalPrice: lineTotalPrice,
+            promotionDiscount: promoDiscount,
+            grossValue: grossVal,
             isBonus: vi.isBonus ?? false,
             promotionNote: vi.promotionNote ?? null
           });
         }
       } else {
+        const totalP = vi.totalQuantityPacks ?? vi.totalPacks ?? vi.quantityPacks ?? 0;
+        const unitPrice = vi.originalPrice ?? vi.price ?? 0;
+        const lineTotal = vi.itemTotalPrice ?? 0;
+        const grossVal = Math.round(totalP * unitPrice * 100) / 100;
+        const promoDiscount = vi.promotionDiscount ?? Math.max(0, Math.round((grossVal - lineTotal) * 100) / 100);
+
         excelItems.push({
           sku: vi.sku || vi.skuSnapshot || '',
           name: vi.groupDisplayName || vi.name || vi.productNameSnapshot || '',
-          packs: vi.totalQuantityPacks ?? vi.totalPacks ?? vi.quantityPacks ?? 0,
+          packs: totalP,
           blocks: vi.totalQuantityBlocks ?? vi.totalBlocks ?? vi.quantityBlocks ?? 0,
           cases: vi.totalQuantityCases ?? vi.totalCases ?? vi.quantityCases ?? 0,
           baseQuantityPacks: vi.baseQuantityPacks ?? 0,
           bonusQuantityPacks: vi.bonusQuantityPacks ?? 0,
-          totalQuantityPacks: vi.totalQuantityPacks ?? vi.totalPacks ?? vi.quantityPacks ?? 0,
+          totalQuantityPacks: totalP,
           baseQuantityBlocks: vi.baseQuantityBlocks ?? 0,
           bonusQuantityBlocks: vi.bonusQuantityBlocks ?? 0,
           totalQuantityBlocks: vi.totalQuantityBlocks ?? vi.totalBlocks ?? vi.quantityBlocks ?? 0,
-          price: vi.originalPrice ?? vi.price ?? 0,
-          effectivePrice: vi.effectivePrice ?? vi.originalPrice ?? vi.price ?? 0,
-          itemTotalPrice: vi.itemTotalPrice ?? 0,
+          price: unitPrice,
+          effectivePrice: vi.effectivePrice ?? unitPrice,
+          itemTotalPrice: lineTotal,
+          promotionDiscount: promoDiscount,
+          grossValue: grossVal,
           isBonus: vi.isBonus ?? false,
           promotionNote: vi.promotionNote ?? null
         });

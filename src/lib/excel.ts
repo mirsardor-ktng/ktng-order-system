@@ -27,6 +27,8 @@ export interface ExcelOrderData {
     itemTotalPrice: number;
     isBonus?: boolean;
     promotionNote?: string;
+    promotionDiscount?: number;
+    grossValue?: number;
   }>;
 }
 
@@ -148,6 +150,12 @@ export async function generateExcelOrder(
               ? `${totalBlocks} бл. (${baseBlocks} оплат. + ${bonusBlocks} бонус)`
               : `${totalBlocks} бл.`;
 
+            const grossPrice = item.price;
+            const grossTotal = item.grossValue ?? Math.round(totalPacks * grossPrice * 100) / 100;
+            const netTotal = item.itemTotalPrice;
+            const promoDiscount = item.promotionDiscount ?? Math.max(0, Math.round((grossTotal - netTotal) * 100) / 100);
+            const unitPrice = item.effectivePrice ?? item.price;
+
             const itemVars: Record<string, any> = {
               '{QTY_PACKS}': totalPacks % 10,
               '{QTY_BLOCKS}': Math.floor((totalPacks % 500) / 10),
@@ -160,12 +168,16 @@ export async function generateExcelOrder(
               '{BONUS_BLOCKS}': bonusBlocks,
               '{TOTAL_BLOCKS}': totalBlocks,
               '{QTY_DETAILS}': qtyDetails,
-              '{PRICE}': item.effectivePrice || item.price,
-              '{ORIGINAL_PRICE}': item.price,
-              '{EFFECTIVE_PRICE}': item.effectivePrice || item.price,
+              '{PRICE}': unitPrice,
+              '{ORIGINAL_PRICE}': grossPrice,
+              '{GROSS_PRICE}': grossPrice,
+              '{GROSS_TOTAL}': grossTotal,
+              '{PROMOTION_DISCOUNT}': promoDiscount,
+              '{NET_TOTAL}': netTotal,
+              '{EFFECTIVE_PRICE}': unitPrice,
               '{PROMOTION_NOTE}': item.promotionNote || '',
-              '{ITEM_TOTAL}': item.itemTotalPrice,
-              '{ITEM_TOTAL_PRICE}': item.itemTotalPrice,
+              '{ITEM_TOTAL}': netTotal,
+              '{ITEM_TOTAL_PRICE}': netTotal,
               '{TOTAL_PRICE}': orderData.totalPrice,
               '{SKU_NAME}': item.promotionNote ? `${item.name} (${item.promotionNote})` : item.name,
               '{SKU_CODE}': item.sku
@@ -207,6 +219,12 @@ export async function generateExcelOrder(
                 const baseBlocks = matchingItem!.baseQuantityBlocks ?? Math.floor(bp / 10);
                 const bonusBlocks = matchingItem!.bonusQuantityBlocks ?? Math.floor(bonusP / 10);
                 const totalBlocks = matchingItem!.totalQuantityBlocks ?? matchingItem!.blocks ?? Math.floor(tp / 10);
+                const grossPrice = matchingItem!.price;
+                const grossTotal = matchingItem!.grossValue ?? Math.round(tp * grossPrice * 100) / 100;
+                const netTotal = matchingItem!.itemTotalPrice > 0 ? matchingItem!.itemTotalPrice : 0;
+                const promoDiscount = matchingItem!.promotionDiscount ?? Math.max(0, Math.round((grossTotal - netTotal) * 100) / 100);
+                const unitPrice = matchingItem!.effectivePrice ?? matchingItem!.price;
+
                 return {
                   '{QTY_PACKS}': tp > 0 ? (tp % 10) : 0,
                   '{QTY_BLOCKS}': tp > 0 ? Math.floor((tp % 500) / 10) : 0,
@@ -221,11 +239,15 @@ export async function generateExcelOrder(
                   '{QTY_DETAILS}': bonusBlocks > 0
                     ? `${totalBlocks} бл. (${baseBlocks} оплат. + ${bonusBlocks} бонус)`
                     : `${totalBlocks} бл.`,
-                  '{PRICE}': matchingItem!.effectivePrice || matchingItem!.price,
-                  '{ORIGINAL_PRICE}': matchingItem!.price,
-                  '{EFFECTIVE_PRICE}': matchingItem!.effectivePrice || matchingItem!.price,
-                  '{ITEM_TOTAL}': matchingItem!.itemTotalPrice > 0 ? matchingItem!.itemTotalPrice : 0,
-                  '{ITEM_TOTAL_PRICE}': matchingItem!.itemTotalPrice > 0 ? matchingItem!.itemTotalPrice : 0,
+                  '{PRICE}': unitPrice,
+                  '{ORIGINAL_PRICE}': grossPrice,
+                  '{GROSS_PRICE}': grossPrice,
+                  '{GROSS_TOTAL}': grossTotal,
+                  '{PROMOTION_DISCOUNT}': promoDiscount,
+                  '{NET_TOTAL}': netTotal,
+                  '{EFFECTIVE_PRICE}': unitPrice,
+                  '{ITEM_TOTAL}': netTotal,
+                  '{ITEM_TOTAL_PRICE}': netTotal,
                   '{TOTAL_PRICE}': orderData.totalPrice,
                 };
               })();
@@ -237,6 +259,9 @@ export async function generateExcelOrder(
   }
 
   // 3. Process Global / Order-Level Placeholders (e.g. {CLIENT_NAME}, {ORDER_DATE}, {TOTAL_BLOCKS}, {TOTAL_CASES})
+  const orderGrossTotal = orderData.items.reduce((s, it) => s + (it.grossValue ?? Math.round(((it.totalQuantityPacks ?? it.packs ?? 0) * it.price) * 100) / 100), 0);
+  const orderDiscount = Math.max(0, Math.round((orderGrossTotal - orderData.totalPrice) * 100) / 100);
+
   const globalVars: Record<string, any> = {
     '{CLIENT_NAME}': orderData.clientName,
     '{ORDER_DATE}': orderData.orderDate,
@@ -245,6 +270,10 @@ export async function generateExcelOrder(
     '{TOTAL_CASES}': totalCases,
     '{TOTAL_PACKS}': totalLoosePacks,
     '{TOTAL_QTY_PACKS}': totalPacksSum,
+    '{GROSS_TOTAL}': Math.round(orderGrossTotal * 100) / 100,
+    '{PROMOTION_DISCOUNT}': orderDiscount,
+    '{TOTAL_DISCOUNT}': orderDiscount,
+    '{NET_TOTAL}': orderData.totalPrice,
     '{TOTAL_PRICE}': orderData.totalPrice,
     '{BREAKDOWN_BLOCKS}': totalBlocks,
     '{BREAKDOWN_PACKS}': totalLoosePacks,

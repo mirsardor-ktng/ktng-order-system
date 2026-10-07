@@ -188,16 +188,18 @@ export function calculateOrderPure(
     const hasBonus = participatingIds.some(id => (itemMap.get(id)?.bonusPacks ?? 0) > 0);
     if (!hasBonus) continue;
 
+    let participatingBaseCost = 0;
     let participatingNominalCost = 0;
     participatingIds.forEach(id => {
       const it = itemMap.get(id);
       if (it) {
+        participatingBaseCost += it.basePacks * it.price;
         participatingNominalCost += (it.basePacks + it.bonusPacks) * it.price;
       }
     });
 
-    if (participatingNominalCost > 0) {
-      const k_promo = sourceBaseCost / participatingNominalCost;
+    if (participatingNominalCost > 0 && participatingBaseCost > 0) {
+      const k_promo = participatingBaseCost / participatingNominalCost;
       participatingIds.forEach(id => {
         const it = itemMap.get(id);
         if (it) {
@@ -338,14 +340,9 @@ export function calculateOrderPure(
   // ==========================================
   lineItems.forEach(item => {
     if (item.totalPacks > 0) {
-      if (item.basePacks === 0 && item.bonusPacks > 0) {
-        item.effectivePrice = 0;
-        item.finalLinePrice = 0;
-      } else {
-        const rawUnitPrice = item.stage3LinePrice / item.totalPacks;
-        item.effectivePrice = Math.round(rawUnitPrice * 100) / 100;
-        item.finalLinePrice = Math.round(item.effectivePrice * item.totalPacks * 100) / 100;
-      }
+      const rawUnitPrice = item.stage3LinePrice / item.totalPacks;
+      item.effectivePrice = Math.round(rawUnitPrice * 100) / 100;
+      item.finalLinePrice = Math.round(item.effectivePrice * item.totalPacks * 100) / 100;
     } else {
       item.effectivePrice = item.originalPrice;
       item.finalLinePrice = 0;
@@ -385,7 +382,7 @@ export function calculateOrderPure(
     overallBonusCases += bonusCases;
     overallTotalCases += totalCases;
 
-    const promotionDiscount = Math.round(((item.totalPacks * item.originalPrice) - item.finalLinePrice) * 100) / 100;
+    const promotionDiscount = Math.max(0, Math.round(((item.totalPacks * item.originalPrice) - item.finalLinePrice) * 100) / 100);
 
     return {
       productId: item.productId,
