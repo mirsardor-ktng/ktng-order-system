@@ -1,11 +1,14 @@
+import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
+import { validateNonProductionHttpTarget } from '../../scripts/test-http-safety';
 
 async function requestUrl(url: string, headers: Record<string, string> = {}): Promise<{ status: number; duration: number; headers: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     const t0 = performance.now();
-    const req = https.request(url, { headers }, (res) => {
+    const transport = url.startsWith('https:') ? https : http;
+    const req = transport.request(url, { headers }, (res) => {
       let body = '';
       res.on('data', chunk => { body += chunk; });
       res.on('end', () => {
@@ -39,7 +42,8 @@ async function loginUser(baseUrl: string, bypassSecret?: string) {
     if (bypassSecret) {
       headers['x-vercel-protection-bypass'] = bypassSecret;
     }
-    const req = https.request(`${baseUrl}/api/auth/login`, {
+    const transport = baseUrl.startsWith('https:') ? https : http;
+    const req = transport.request(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers
     }, (res) => {
@@ -57,7 +61,8 @@ async function loginUser(baseUrl: string, bypassSecret?: string) {
 }
 
 async function main() {
-  const targetUrl = process.argv[2] || 'https://ktng-order-system.vercel.app';
+  const rawTarget = process.argv[2] || process.env.TARGET_URL || process.env.TEST_HTTP_BASE_URL;
+  const targetUrl = validateNonProductionHttpTarget(rawTarget, 'measure-cold-starts.ts');
   const regionTag = process.argv[3] || 'region_a';
   const bypassSecret = process.argv[4] || process.env.BYPASS_SECRET || '';
   const outDir = path.resolve(__dirname, `results-13c/${regionTag}`);

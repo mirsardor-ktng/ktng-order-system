@@ -109,6 +109,7 @@ model Order {
   totalBlocks     Int
   totalCases      Float
   totalPrice      Float
+  appliedPromotions Json?     // Exact deducted promotion budgets: Array<{ promotionId: string, amount: number }>
   fileUrl         String?     // Path to generated Excel file or Google Drive URL
   fileId          String?
   fileName        String?

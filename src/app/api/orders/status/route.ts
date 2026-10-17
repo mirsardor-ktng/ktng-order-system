@@ -8,13 +8,17 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await requirePermissionAsync(req, 'orders:status_change');
     const body = await req.json();
-    const { orderId, status, reason } = body;
+    const { orderId, status, reason, adminResolvedDeductions, reconciliationReason } = body;
 
     if (!orderId || !status) {
       return NextResponse.json({ error: 'Не указан ID заказа или статус.' }, { status: 400 });
     }
 
-    const result = await OrdersService.updateOrderStatus(session as any, { orderId, status, reason }, req);
+    const result = await OrdersService.updateOrderStatus(
+      session as any,
+      { orderId, status, reason, adminResolvedDeductions, reconciliationReason },
+      req
+    );
 
     return NextResponse.json({
       success: true,

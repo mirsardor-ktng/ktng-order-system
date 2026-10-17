@@ -14,7 +14,8 @@ import {
  */
 export function calculateOrderPure(
   inputItems: CalculationInputItem[],
-  config: OrderCalculationConfig
+  config: OrderCalculationConfig,
+  options?: { ignoreBudgetLimits?: boolean }
 ): CalculatedOrder {
   const productMap = new Map(config.products.map(p => [p.id, p]));
   const groupMap = new Map(config.groups.map(g => [g.id, g]));
@@ -26,7 +27,7 @@ export function calculateOrderPure(
     p => p.type === 'ORDER_PERCENTAGE' && p.discountPercent && p.discountPercent > 0
   );
   const fixedAmountPromos = promotions.filter(
-    p => p.type === 'ORDER_FIXED_AMOUNT' && (p.remainingAmount === null || (p.remainingAmount !== null && p.remainingAmount > 0))
+    p => p.type === 'ORDER_FIXED_AMOUNT' && (options?.ignoreBudgetLimits || p.remainingAmount === null || (p.remainingAmount != null && p.remainingAmount > 0))
   );
 
   // Initialize item map with base user inputs ONLY
@@ -304,7 +305,7 @@ export function calculateOrderPure(
     const maxUsagePct = promo.maxOrderUsagePercent ?? 10.0;
     const maxAllowedForOrder = currentOrderSubtotalForFixed * (maxUsagePct / 100);
 
-    const availableLimit = promo.remainingAmount ?? maxAllowedForOrder;
+    const availableLimit = options?.ignoreBudgetLimits ? maxAllowedForOrder : (promo.remainingAmount ?? maxAllowedForOrder);
     const usableDiscount = Math.min(availableLimit, maxAllowedForOrder);
 
     if (usableDiscount <= 0) continue;

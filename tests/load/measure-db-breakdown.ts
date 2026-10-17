@@ -1,6 +1,7 @@
 import prisma from '../../src/lib/db';
 import fs from 'fs';
 import path from 'path';
+import { assertSafeLocalTestDatabase } from '../../scripts/test-db-safety';
 
 function getStats(arr: number[]) {
   const sorted = [...arr].sort((a, b) => a - b);
@@ -19,6 +20,7 @@ function extractPlan(explainResult: any) {
 }
 
 async function main() {
+  await assertSafeLocalTestDatabase(prisma, 'measure-db-breakdown.ts');
   const regionTag = process.argv[2] || 'region_a';
   const outDir = path.resolve(__dirname, `results-13c/${regionTag}`);
   if (!fs.existsSync(outDir)) {

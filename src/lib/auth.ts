@@ -140,10 +140,10 @@ export async function getUserSessionVersion(userId: string): Promise<number | nu
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { sessionVersion: true }
+    select: { sessionVersion: true, isActive: true }
   });
 
-  if (!user) return null;
+  if (!user || !user.isActive) return null;
   sessionVersionCache.set(userId, { version: user.sessionVersion, cachedAt: now });
   return user.sessionVersion;
 }

@@ -76,14 +76,15 @@ export class PromotionsService {
    */
   static async calculateOrder(
     inputItems: CalculationInputItem[],
-    companyId?: string | null
+    companyId?: string | null,
+    options?: { ignoreBudgetLimits?: boolean }
   ): Promise<CalculatedOrder> {
     const totalStart = performance.now();
 
     const { config, cacheHit, loadMs: configLoadMs } = await getOrderCalculationConfig(companyId);
 
     const calcStart = performance.now();
-    const result = calculateOrderPure(inputItems, config);
+    const result = calculateOrderPure(inputItems, config, options);
     const calculationMs = Math.round(performance.now() - calcStart);
 
     const totalMs = Math.round(performance.now() - totalStart);

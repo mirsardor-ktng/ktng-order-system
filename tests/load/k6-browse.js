@@ -12,10 +12,12 @@ const p2024Errors = new Counter('p2024_connection_errors');
 const server500Errors = new Counter('server_500_errors');
 const successfulJourneys = new Rate('successful_journeys');
 
+import { validateK6Target } from './k6-http-safety.js';
+
 // Load test user data
 const testData = JSON.parse(open('./test-data.json'));
 
-const BASE_URL = __ENV.TARGET_URL || 'https://ktng-order-system.vercel.app';
+const BASE_URL = validateK6Target(__ENV.TARGET_URL || __ENV.TEST_HTTP_BASE_URL, 'k6-browse.js');
 
 export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],

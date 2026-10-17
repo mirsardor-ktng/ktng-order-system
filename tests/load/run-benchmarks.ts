@@ -2,6 +2,8 @@ import { execSync, spawnSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import prisma from '../../src/lib/db';
+import { assertSafeLocalTestDatabase } from '../../scripts/test-db-safety';
+import { validateNonProductionHttpTarget } from '../../scripts/test-http-safety';
 
 const K6_BIN = 'C:\\Program Files\\k6\\k6.exe';
 const RESULTS_DIR = path.resolve(__dirname, 'results');
@@ -18,7 +20,7 @@ interface TestRunConfig {
   description: string;
 }
 
-function runK6Test(config: TestRunConfig): any {
+function runK6Test(config: TestRunConfig, targetUrl: string): any {
   console.log(`\n===============================================================`);
   console.log(`>>> RUNNING TEST: ${config.name} (${config.description})`);
   console.log(`    VUs: ${config.vus} | Duration: ${config.duration} | Script: ${config.script}`);
@@ -41,7 +43,7 @@ function runK6Test(config: TestRunConfig): any {
     cwd: path.resolve(__dirname),
     encoding: 'utf-8',
     stdio: 'pipe',
-    env: { ...process.env, TARGET_URL: 'https://ktng-order-system.vercel.app' }
+    env: { ...process.env, TARGET_URL: targetUrl }
   });
   const elapsedSec = ((performance.now() - t0) / 1000).toFixed(1);
 
@@ -107,9 +109,13 @@ async function verifyStockIntegrity() {
 }
 
 async function main() {
+  const rawTarget = process.argv[2] || process.env.TARGET_URL || process.env.TEST_HTTP_BASE_URL;
+  const targetUrl = validateNonProductionHttpTarget(rawTarget, 'run-benchmarks.ts');
+  await assertSafeLocalTestDatabase(prisma, 'run-benchmarks.ts');
+
   console.log('###############################################################');
   console.log('### PHASE 13A: FULL LOAD & CAPACITY TEST SUITE              ###');
-  console.log('### Target: Vercel Production + Supabase Singapore Postgres  ###');
+  console.log(`### Target: Local Test Server (${targetUrl})              ###`);
   console.log('###############################################################\n');
 
   // Pre-cleanup
@@ -133,7 +139,7 @@ async function main() {
   console.log('===============================================================\n');
 
   for (const test of browsingTests) {
-    runK6Test(test);
+    runK6Test(test, targetUrl);
     // Cool-down 3 seconds between tiers
     spawnSync('powershell', ['-Command', 'Start-Sleep -Seconds 3']);
   }
@@ -155,7 +161,7 @@ async function main() {
   console.log('===============================================================\n');
 
   for (const test of orderTests) {
-    runK6Test(test);
+    runK6Test(test, targetUrl);
     spawnSync('powershell', ['-Command', 'Start-Sleep -Seconds 3']);
   }
 
@@ -172,7 +178,7 @@ async function main() {
   console.log('===============================================================\n');
 
   for (const test of sellerTests) {
-    runK6Test(test);
+    runK6Test(test, targetUrl);
     spawnSync('powershell', ['-Command', 'Start-Sleep -Seconds 3']);
   }
 
