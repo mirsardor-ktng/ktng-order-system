@@ -1,4 +1,5 @@
 import { calculateOrderPure } from '../src/lib/calculation/engine';
+import { getCatalogBonusSummary } from '../src/lib/calculation/catalog-bonus';
 import { OrderCalculationConfig } from '../src/lib/calculation/types';
 
 async function main() {
@@ -118,6 +119,9 @@ async function main() {
   assert(giftItem !== undefined, 'res3 giftItem exists');
   assert(giftItem?.bonusQuantityPacks === 50, 'res3 giftItem bonusQuantityPacks === 50');
   assert(giftItem?.isBonus === true, 'res3 giftItem isBonus === true');
+  const giftCardSummary = getCatalogBonusSummary({ id: 'p3' }, res3.items);
+  assert(giftCardSummary.bonusQuantityPacks === 50, 'cross-SKU gift card shows its bonus when regular quantity is zero');
+  assert(giftCardSummary.baseQuantityPacks === 0 && giftCardSummary.isBonusOnly, 'cross-SKU gift card marks bonus-only quantity as non-removable');
 
   // Test 4: Order Percentage Discount (5%)
   console.log('\n[Test 4] Order percentage discount (5%)');
@@ -187,6 +191,33 @@ async function main() {
   assert(res6.appliedPromotions.length === 3, 'res6 appliedPromotions length === 3');
   assert(res6.totalPacks === 550, 'res6 totalPacks === 550');
   assert(res6.totalPrice < 5000000, 'res6 final price reflects all stages');
+
+  // Test 7: Every order discount is calculated from the same pre-discount price.
+  console.log('\n[Test 7] Independent percentage and fixed discounts');
+  const config7: OrderCalculationConfig = {
+    ...testConfig,
+    promotions: [
+      { ...config4.promotions[0], id: 'pct-10a', discountPercent: 10 },
+      { ...config4.promotions[0], id: 'pct-10b', discountPercent: 10 },
+      { ...config5.promotions[0], id: 'fixed-10pct', remainingAmount: 200000, maxOrderUsagePercent: 10 }
+    ]
+  };
+  const res7 = calculateOrderPure([{ productId: 'p1', baseQuantityPacks: 100 }], config7);
+  assert(res7.totalPrice === 700000, `two 10% discounts and a 10%-capped fixed discount are based on the original 1,000,000 (got ${res7.totalPrice})`);
+  assert(res7.fixedAmountDeductions[0]?.amount === 100000, 'fixed discount cap uses the original pre-discount order price');
+
+  // Test 8: Aggregate raw discounts first, then round the final per-pack price to tiyin.
+  console.log('\n[Test 8] Aggregate discount and final per-pack rounding');
+  const config8: OrderCalculationConfig = {
+    ...testConfig,
+    promotions: [
+      { ...config4.promotions[0], id: 'pct-20a', discountPercent: 20 },
+      { ...config4.promotions[0], id: 'pct-20b', discountPercent: 20 }
+    ]
+  };
+  const res8 = calculateOrderPure([{ productId: 'p1', baseQuantityPacks: 1, price: 1.03 }], config8);
+  assert(res8.items[0].effectivePrice === 0.62, `1.03 less two independent 20% discounts rounds once to 0.62 (got ${res8.items[0].effectivePrice})`);
+  assert(res8.totalPrice === 0.62, 'final line and order totals use the rounded per-pack price');
 
   console.log(`\nResult: ${passed} passed, ${failed} failed.`);
   if (failed > 0) process.exit(1);
