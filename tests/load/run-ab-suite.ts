@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync, execSync } from 'child_process';
 import prisma from '../../src/lib/db';
+import { assertSafeLocalTestDatabase } from '../../scripts/test-db-safety';
+import { validateNonProductionHttpTarget } from '../../scripts/test-http-safety';
 
 const K6_BIN = 'C:\\Program Files\\k6\\k6.exe';
 
@@ -83,7 +85,10 @@ async function requestUrl(url: string, options: { method?: string; headers?: Rec
   });
 }
 
-export async function runBenchmarkSuite(targetUrl: string, regionTag: string, bypassSecret?: string) {
+export async function runBenchmarkSuite(rawTargetUrl: string, regionTag: string, bypassSecret?: string) {
+  const targetUrl = validateNonProductionHttpTarget(rawTargetUrl, 'run-ab-suite.ts');
+  await assertSafeLocalTestDatabase(prisma, 'run-ab-suite.ts');
+
   console.log(`======================================================================`);
   console.log(`=== STARTING PHASE 13C-A BENCHMARK FOR REGION: ${regionTag} ===`);
   console.log(`=== Target URL: ${targetUrl} ===`);
@@ -341,9 +346,11 @@ export async function runBenchmarkSuite(targetUrl: string, regionTag: string, by
 }
 
 if (require.main === module) {
-  const targetUrl = process.argv[2] || process.env.TARGET_URL || 'https://ktng-order-system.vercel.app';
+  const rawTarget = process.argv[2] || process.env.TARGET_URL || process.env.TEST_HTTP_BASE_URL;
   const regionTag = process.argv[3] || process.env.REGION_TAG || 'region_a';
   const bypassSecret = process.argv[4] || process.env.BYPASS_SECRET || '';
+
+  const targetUrl = validateNonProductionHttpTarget(rawTarget, 'run-ab-suite.ts');
 
   runBenchmarkSuite(targetUrl, regionTag, bypassSecret)
     .then(() => process.exit(0))

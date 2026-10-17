@@ -8,8 +8,10 @@ const sellerOrdersPage1Duration = new Trend('seller_orders_p1_duration', true);
 const sellerOrdersPage2Duration = new Trend('seller_orders_p2_duration', true);
 const p2024Errors = new Counter('p2024_connection_errors');
 
+import { validateK6Target } from './k6-http-safety.js';
+
 const testData = JSON.parse(open('./test-data.json'));
-const BASE_URL = __ENV.TARGET_URL || 'https://ktng-order-system.vercel.app';
+const BASE_URL = validateK6Target(__ENV.TARGET_URL || __ENV.TEST_HTTP_BASE_URL, 'k6-seller.js');
 
 export default function () {
   const seller = testData.seller;
