@@ -7,6 +7,7 @@ import { UnitMode, packsToUnit, unitToPacks, breakdownPacks } from '@/lib/conver
 import CustomerKpiDashboard from '@/components/CustomerKpiDashboard';
 import { useTranslation } from '@/i18n/context';
 import { calculateOrderPure } from '@/lib/calculation/engine';
+import { getCatalogBonusSummary } from '@/lib/calculation/catalog-bonus';
 import type { OrderCalculationConfig } from '@/lib/calculation/types';
 import DeleteDraftModal from '@/components/DeleteDraftModal';
 
@@ -905,7 +906,10 @@ export default function CustomerCatalog() {
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
           {filteredProducts.map((prod) => {
             const quantityInPacks = getProductCartPacks(prod, cart);
-            const uiQuantity = packsToUnit(quantityInPacks, unitMode);
+            const bonusSummary = getCatalogBonusSummary(prod, calculatedOrder?.items ?? []);
+            const isBonusOnly = bonusSummary.isBonusOnly && quantityInPacks === 0;
+            const displayQuantityInPacks = isBonusOnly ? bonusSummary.totalQuantityPacks : quantityInPacks;
+            const uiQuantity = packsToUnit(displayQuantityInPacks, unitMode);
             const inCart = quantityInPacks > 0;
             const isOutOfStock = prod.stockPacks <= 0;
             let calcItem = calculatedItemMap.get(prod.id);
@@ -976,9 +980,9 @@ export default function CustomerCatalog() {
                       <span className="text-[9px] sm:text-[10px] font-extrabold px-1.5 sm:px-2 py-0.5 rounded bg-slate-800 text-slate-300 tracking-wider">
                         {prod.sku}
                       </span>
-                      {calcItem && calcItem.bonusQuantityPacks > 0 && (
+                      {bonusSummary.bonusQuantityPacks > 0 && (
                         <span className="flex items-center gap-1 text-[8px] sm:text-[9px] font-extrabold px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 shadow-glow-sm">
-                          🎁 +{calcItem.bonusQuantityBlocks} {t('units.blocksShort')}
+                          🎁 +{bonusSummary.bonusQuantityPacks / 10} {t('units.blocksShort')}
                         </span>
                       )}
                     </div>
@@ -1053,7 +1057,7 @@ export default function CustomerCatalog() {
                   <div className="flex items-center gap-1 bg-slate-950/50 p-1 rounded-xl border border-white/5">
                     <button
                       onClick={() => handleDecrement(prod.id)}
-                      disabled={isOutOfStock}
+                      disabled={isOutOfStock || isBonusOnly}
                       className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
                       <Minus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -1065,12 +1069,12 @@ export default function CustomerCatalog() {
                       value={uiQuantity || ''}
                       onChange={(e) => handleInputChange(prod.id, e.target.value)}
                       placeholder="0"
-                      disabled={isOutOfStock}
+                      disabled={isOutOfStock || isBonusOnly}
                     />
 
                     <button
                       onClick={() => handleIncrement(prod.id)}
-                      disabled={isOutOfStock}
+                      disabled={isOutOfStock || isBonusOnly}
                       className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
                       <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -1078,7 +1082,7 @@ export default function CustomerCatalog() {
                   </div>
 
                   {/* Item total price helper (so'm currency) */}
-                  {inCart && (
+                  {(inCart || isBonusOnly) && (
                     <div className="space-y-1.5 pt-1">
                       <div className="flex justify-between items-center text-[10px] text-slate-400 px-1 font-semibold">
                         <span>{t('catalog.sum')}:</span>
@@ -1103,31 +1107,31 @@ export default function CustomerCatalog() {
                       )}
 
                       {/* Real-time Promotion Engine Bonus Breakdown */}
-                      {calcItem && calcItem.bonusQuantityPacks > 0 && (
+                      {bonusSummary.bonusQuantityPacks > 0 && (
                         <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-2 text-[10px] space-y-0.5">
                           <div className="flex justify-between text-slate-300">
                             <span>{t('catalog.selected')}:</span>
                             <span className="font-bold text-white">
-                              {unitMode === 'BLOCKS' ? `${calcItem.baseQuantityBlocks} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${calcItem.baseQuantityCases} ${t('units.casesShort')}` : `${calcItem.baseQuantityPacks} ${t('units.packsShort')}`}
+                              {unitMode === 'BLOCKS' ? `${bonusSummary.baseQuantityPacks / 10} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${bonusSummary.baseQuantityPacks / 500} ${t('units.casesShort')}` : `${bonusSummary.baseQuantityPacks} ${t('units.packsShort')}`}
                             </span>
                           </div>
                           <div className="flex justify-between text-emerald-400 font-bold">
                             <span>{t('catalog.bonus')}:</span>
                             <span>
-                              +{unitMode === 'BLOCKS' ? `${calcItem.bonusQuantityBlocks} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${calcItem.bonusQuantityCases} ${t('units.casesShort')}` : `${calcItem.bonusQuantityPacks} ${t('units.packsShort')}`}
+                              +{unitMode === 'BLOCKS' ? `${bonusSummary.bonusQuantityPacks / 10} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${bonusSummary.bonusQuantityPacks / 500} ${t('units.casesShort')}` : `${bonusSummary.bonusQuantityPacks} ${t('units.packsShort')}`}
                             </span>
                           </div>
                           <div className="flex justify-between text-amber-300 font-extrabold border-t border-amber-500/20 pt-0.5">
                             <span>{t('catalog.total')}:</span>
                             <span>
-                              {unitMode === 'BLOCKS' ? `${calcItem.totalQuantityBlocks} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${calcItem.totalQuantityCases} ${t('units.casesShort')}` : `${calcItem.totalQuantityPacks} ${t('units.packsShort')}`}
+                              {unitMode === 'BLOCKS' ? `${bonusSummary.totalQuantityPacks / 10} ${t('units.blocksShort')}` : unitMode === 'CASES' ? `${bonusSummary.totalQuantityPacks / 500} ${t('units.casesShort')}` : `${bonusSummary.totalQuantityPacks} ${t('units.packsShort')}`}
                             </span>
                           </div>
                         </div>
                       )}
 
                       {/* Promotion Note */}
-                      {calcItem && calcItem.promotionNote && !calcItem.bonusQuantityPacks && (
+                      {calcItem && calcItem.promotionNote && !bonusSummary.bonusQuantityPacks && (
                         <div className="text-[9px] px-1 text-emerald-400/90 font-medium">
                           {calcItem.promotionNote}
                         </div>

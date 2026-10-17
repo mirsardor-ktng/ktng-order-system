@@ -268,13 +268,15 @@ export function calculateOrderPure(
 
   // ==========================================
   // STAGE 2: Order Percentage Discounts
+  // Each promotion is calculated independently from the same pre-order-discount
+  // amount (after any SKU bonus cost redistribution).
   // ==========================================
-  let compoundPercentageFactor = 1.0;
+  const originalOrderDiscountBase = stage1TotalPrice;
+  let totalPercentageDiscount = 0;
 
   for (const promo of percentagePromos) {
     if (!promo.discountPercent || promo.discountPercent <= 0) continue;
-    const factor = (1 - promo.discountPercent / 100);
-    compoundPercentageFactor *= factor;
+    totalPercentageDiscount += originalOrderDiscountBase * (promo.discountPercent / 100);
 
     const note = `Скидка на заказ ${promo.discountPercent}% ("${promo.name}")`;
     appliedPromotions.push({
@@ -286,40 +288,45 @@ export function calculateOrderPure(
     });
   }
 
+  const appliedPercentageDiscount = Math.min(originalOrderDiscountBase, totalPercentageDiscount);
+  const stage2Factor = originalOrderDiscountBase > 0
+    ? (originalOrderDiscountBase - appliedPercentageDiscount) / originalOrderDiscountBase
+    : 0;
   lineItems.forEach(item => {
-    item.stage2LinePrice = item.stage1LinePrice * compoundPercentageFactor;
+    item.stage2LinePrice = item.stage1LinePrice * stage2Factor;
     item.stage3LinePrice = item.stage2LinePrice;
   });
 
-  const stage2TotalPrice = lineItems.reduce((sum, item) => sum + item.stage2LinePrice, 0);
+  const stage2TotalPrice = originalOrderDiscountBase - appliedPercentageDiscount;
 
   // ==========================================
   // STAGE 3: Order Fixed Amount Discounts
   // ==========================================
   const fixedAmountDeductions: Array<{ promotionId: string; amount: number }> = [];
-  let currentOrderSubtotalForFixed = stage2TotalPrice;
+  let totalFixedDiscount = 0;
 
   for (const promo of fixedAmountPromos) {
-    if (currentOrderSubtotalForFixed <= 0) break;
+    const remainingOrderValue = originalOrderDiscountBase - appliedPercentageDiscount - totalFixedDiscount;
+    if (remainingOrderValue <= 0) break;
 
     const maxUsagePct = promo.maxOrderUsagePercent ?? 10.0;
-    const maxAllowedForOrder = currentOrderSubtotalForFixed * (maxUsagePct / 100);
+    const maxAllowedForOrder = originalOrderDiscountBase * (maxUsagePct / 100);
 
     const availableLimit = options?.ignoreBudgetLimits ? maxAllowedForOrder : (promo.remainingAmount ?? maxAllowedForOrder);
     const usableDiscount = Math.min(availableLimit, maxAllowedForOrder);
 
     if (usableDiscount <= 0) continue;
 
-    const actualUsable = Math.min(usableDiscount, currentOrderSubtotalForFixed);
+    const actualUsable = Math.min(usableDiscount, remainingOrderValue);
     if (actualUsable <= 0) continue;
 
-    const previousStageSubtotal = currentOrderSubtotalForFixed;
+    const previousStageSubtotal = lineItems.reduce((sum, item) => sum + item.stage3LinePrice, 0);
     lineItems.forEach(item => {
       const itemShare = previousStageSubtotal > 0 ? (item.stage3LinePrice / previousStageSubtotal) : 0;
       item.stage3LinePrice -= itemShare * actualUsable;
     });
 
-    currentOrderSubtotalForFixed -= actualUsable;
+    totalFixedDiscount += actualUsable;
 
     fixedAmountDeductions.push({
       promotionId: promo.id,
