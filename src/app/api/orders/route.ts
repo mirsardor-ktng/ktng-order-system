@@ -48,14 +48,18 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await requirePermissionAsync(req, ['orders:edit', 'orders:create']);
     const body = await req.json();
-    const { orderId, items, status } = body;
+    const { orderId, items, status, adminResolvedDeductions, reconciliationReason } = body;
     if (!orderId) {
       return NextResponse.json({ error: 'ID заказа не указан.' }, { status: 400 });
     }
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Заказ не может быть пустым.' }, { status: 400 });
     }
-    const result = await OrdersService.updateOrder(session as any, { orderId, items, status }, req);
+    const result = await OrdersService.updateOrder(
+      session as any,
+      { orderId, items, status, adminResolvedDeductions, reconciliationReason },
+      req
+    );
     return NextResponse.json({
       success: true,
       order: result.order,
@@ -64,6 +68,9 @@ export async function PUT(req: NextRequest) {
   } catch (error: any) {
     if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
       return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
+    }
+    if (error.status) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
     console.error('[Update Order Error]', error);
     const userMsg = formatOrderErrorMessage(error);

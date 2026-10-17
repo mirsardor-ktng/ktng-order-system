@@ -121,29 +121,91 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     const session = requirePermission(req, 'promotions:manage');
 
     const { id } = params;
-    const promotion = await prisma.promotion.findUnique({
-      where: { id }
+
+    const deletedPromotion = await prisma.$transaction(async (tx) => {
+      // 1. Exclusively lock the Promotion row to serialize against concurrent order creation
+      const lockedRows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+        SELECT id, name
+        FROM "Promotion"
+        WHERE id = ${id}
+        FOR UPDATE
+      `;
+
+      if (!lockedRows || lockedRows.length === 0) {
+        const err: any = new Error('Акция не найдена.');
+        err.status = 404;
+        throw err;
+      }
+
+      const promotion = lockedRows[0];
+
+      // 2. Perform reference checks inside the SAME transaction (fail-closed, no .catch(() => 0))
+      // Check OrderItem references
+      const linkedItemCount = await tx.orderItem.count({
+        where: { promotionId: id }
+      });
+
+      // Check Order.appliedPromotions references across all supported JSON structures
+      const appliedRows = await tx.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*)::bigint AS count
+        FROM "Order"
+        WHERE "appliedPromotions" IS NOT NULL
+          AND (
+            (jsonb_typeof("appliedPromotions"::jsonb) = 'array'
+             AND "appliedPromotions"::jsonb @> ${JSON.stringify([{ promotionId: id }])}::jsonb)
+            OR
+            (jsonb_typeof("appliedPromotions"::jsonb) = 'object'
+             AND "appliedPromotions"::jsonb @> ${JSON.stringify({ promotionId: id })}::jsonb)
+            OR
+            ("appliedPromotions"::text LIKE ${'%"promotionId":"' + id + '"%'}
+             OR "appliedPromotions"::text LIKE ${'%"promotionId": "' + id + '"%'})
+          )
+      `;
+
+      const linkedAppliedRows = Number(appliedRows[0]?.count || 0);
+      const totalLinkedOrders = linkedItemCount + linkedAppliedRows;
+
+      if (totalLinkedOrders > 0) {
+        const err: any = new Error(
+          `Невозможно удалить промо-акцию "${promotion.name}": она использована в оформленных заказах (${totalLinkedOrders} связей). Для сохранения финансовой истории и корректной сверки деактивируйте акцию (isActive: false).`
+        );
+        err.status = 400;
+        throw err;
+      }
+
+      // 3. Physical deletion executed inside the transaction
+      await tx.promotion.delete({
+        where: { id }
+      });
+
+      return promotion;
+    }, {
+      timeout: 10000,
+      maxWait: 5000
     });
 
-    if (!promotion) {
-      return NextResponse.json({ error: 'Акция не найдена.' }, { status: 404 });
-    }
-
-    await prisma.promotion.delete({
-      where: { id }
-    });
-
+    // 4. Audit log
     await AuditService.log({
       userId: session.userId,
       action: 'DELETE_PROMOTION',
-      details: `Пользователь ${session.email} удалил акцию "${promotion.name}"`,
+      details: `Пользователь ${session.email} удалил акцию "${deletedPromotion.name}"`,
       req
     });
 
+    // 5. Invalidate calculation cache ONLY after the transaction successfully commits
     invalidateOrderCalculationConfig();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const statusCode = error.status || (
+      error.message?.includes('не найдена') ? 404 :
+      error.message?.includes('Невозможно удалить') ? 400 :
+      error.message?.includes('прав') ? 403 : 500
+    );
+    console.error('[Admin Promotion DELETE Error]', error);
+    const message = statusCode === 500
+      ? 'Не удалось удалить промо-акцию из-за внутренней ошибки сервера.'
+      : error.message;
+    return NextResponse.json({ error: message }, { status: statusCode });
   }
 }

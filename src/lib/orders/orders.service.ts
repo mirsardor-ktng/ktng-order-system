@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import prisma from '../db';
@@ -13,7 +14,114 @@ import { ProductGroupService, SkuAllocation } from '../product-groups/product-gr
 import { JWTPayload, hasPermission } from '../auth';
 import { getTashkentStartOfDay, getTashkentStartOfNextDay } from '../date-utils';
 
+export interface AppliedPromotionDeduction {
+  promotionId: string;
+  amount: number;
+  [key: string]: any;
+}
+
+export type OrderPromotionResolutionSource =
+  | 'PERSISTED_EXACT'
+  | 'LEGACY_ZERO_DISCOUNT'
+  | 'ADMIN_RESOLVED';
+
+export interface OrderPromotionResolution {
+  isLegacy: boolean;
+  source: OrderPromotionResolutionSource;
+  deductions: AppliedPromotionDeduction[];
+  warning?: string;
+}
+
+export class LegacyAmbiguousPromotionError extends Error {
+  status: number;
+  code: string;
+  orderId?: string;
+  orderNumber?: string;
+
+  constructor(orderIdentifier: string, details?: string) {
+    super(
+      `Заказ ${orderIdentifier} оформлен в предыдущей версии системы без точного сохранения промо-бюджетов (legacy). ` +
+      `Заказ содержит скидки, которые невозможно однозначно восстановить автоматически. ` +
+      `Автоматическое восстановление промо-бюджета заблокировано для предотвращения финансовых искажений. ` +
+      (details ? `Детали: ${details}. ` : '') +
+      `Для обработки заказа требуется явная административная сверка промо-бюджета (adminResolvedDeductions).`
+    );
+    this.name = 'LegacyAmbiguousPromotionError';
+    this.status = 409;
+    this.code = 'LEGACY_AMBIGUOUS_PROMOTION_BUDGET';
+  }
+}
+
 export class OrdersService {
+  /**
+   * Generates a collision-resistant unique order number.
+   * Strategy: Strictly UTC-consistent date and time to eliminate cross-day timezone mismatches.
+   * Format: ORD-YYYYMMDD-HHMMSS-XXXXXXXX (8 uppercase hex chars = >4.29 billion possibilities/sec)
+   */
+  static generateOrderNumber(date: Date = new Date()): string {
+    const iso = date.toISOString();
+    const dateStr = iso.slice(0, 10).replace(/-/g, '');
+    const timeStr = iso.slice(11, 19).replace(/:/g, '');
+    const randomSuffix = crypto.randomBytes(4).toString('hex').toUpperCase();
+    return `ORD-${dateStr}-${timeStr}-${randomSuffix}`;
+  }
+
+  /**
+   * Atomically decrements promotion budget for multiple fixed-amount promotions.
+   * Enforces remainingAmount >= needed at the database level to prevent race conditions.
+   * Throws error with promotion details if budget is insufficient, rolling back transaction.
+   */
+  static async batchDeductPromotionBudget(
+    tx: any,
+    deductions: Array<{ promotionId: string; amount: number }>
+  ): Promise<void> {
+    if (!deductions || deductions.length === 0) return;
+
+    // Consolidate deductions by promotionId to handle multiple items under the same promotion
+    const consolidated = new Map<string, number>();
+    for (const d of deductions) {
+      if (!d.promotionId || typeof d.amount !== 'number' || !Number.isFinite(d.amount) || isNaN(d.amount) || d.amount <= 0) continue;
+      const roundedAmount = Math.round(d.amount * 100) / 100;
+      consolidated.set(d.promotionId, Math.round(((consolidated.get(d.promotionId) || 0) + roundedAmount) * 100) / 100);
+    }
+
+    const entries = Array.from(consolidated.entries()).filter(([_, amount]) => amount > 0);
+    if (entries.length === 0) return;
+
+    // Sort entries by promotionId ASC to enforce global lock hierarchy
+    entries.sort((a, b) => a[0].localeCompare(b[0]));
+
+    // Parameterized atomic update using Prisma.sql
+    const valueClauses = entries.map(([id, needed]) => Prisma.sql`(${id}::text, ${needed}::double precision)`);
+    const updatedRows = await tx.$queryRaw<Array<{ id: string; name: string; remainingAmount: number | null }>>`
+      UPDATE "Promotion" AS p
+      SET "remainingAmount" = CASE
+            WHEN p."remainingAmount" IS NOT NULL THEN ROUND((p."remainingAmount" - v.needed)::numeric, 2)::double precision
+            ELSE NULL
+          END,
+          "consumedAmount" = ROUND((COALESCE(p."consumedAmount", 0) + v.needed)::numeric, 2)::double precision
+      FROM (VALUES ${Prisma.join(valueClauses)}) AS v(id, needed)
+      WHERE p.id = v.id
+        AND (p."remainingAmount" IS NULL OR ROUND(p."remainingAmount"::numeric, 2) >= ROUND(v.needed::numeric, 2))
+      RETURNING p.id, p.name, p."remainingAmount"
+    `;
+
+    if (updatedRows.length !== entries.length) {
+      const updatedSet = new Set(updatedRows.map((r: { id: string }) => r.id));
+      const failedEntry = entries.find(([id]) => !updatedSet.has(id));
+      const failedPromoId = failedEntry ? failedEntry[0] : '';
+
+      // Query failed promo details to provide informative error
+      const failedPromo = await tx.promotion.findUnique({
+        where: { id: failedPromoId },
+        select: { name: true, remainingAmount: true }
+      });
+      const promoName = failedPromo?.name || 'Фиксированная скидка';
+      const available = failedPromo?.remainingAmount != null ? failedPromo.remainingAmount : 0;
+      throw new Error(`Недостаточно бюджета для применения акции "${promoName}". Доступный остаток: ${available.toLocaleString('ru-RU')} сум. Оформление заказа отменено.`);
+    }
+  }
+
   /**
    * Atomically decrements stock for multiple products in a single SQL roundtrip.
    * Throws error with product name if any product has insufficient stock.
@@ -26,6 +134,9 @@ export class OrdersService {
     const entries = Array.from(stockDecrements.entries()).filter(([_, packs]) => packs > 0);
     if (entries.length === 0) return;
 
+    // Sort entries by productId ASC to enforce global lock hierarchy
+    entries.sort((a, b) => a[0].localeCompare(b[0]));
+
     const valueClauses = entries.map(([id, needed]) => Prisma.sql`(${id}::text, ${needed}::integer)`);
     const updatedRows = await tx.$queryRaw<Array<{ id: string }>>`
       UPDATE "Product" AS p
@@ -36,7 +147,7 @@ export class OrdersService {
     `;
 
     if (updatedRows.length !== entries.length) {
-      const updatedSet = new Set(updatedRows.map(r => r.id));
+      const updatedSet = new Set(updatedRows.map((r: { id: string }) => r.id));
       const failedEntry = entries.find(([id]) => !updatedSet.has(id));
       const pName = (failedEntry && productMap?.get(failedEntry[0])?.name) || 'неизвестно';
       throw new Error(`Превышен доступный лимит запасов для позиции: ${pName}. Пожалуйста, обновите страницу и проверьте остатки.`);
@@ -53,6 +164,9 @@ export class OrdersService {
     const entries = Array.from(stockIncrements.entries()).filter(([_, packs]) => packs > 0);
     if (entries.length === 0) return;
 
+    // Sort entries by productId ASC to enforce global lock hierarchy
+    entries.sort((a, b) => a[0].localeCompare(b[0]));
+
     const valueClauses = entries.map(([id, packs]) => Prisma.sql`(${id}::text, ${packs}::integer)`);
     await tx.$executeRaw`
       UPDATE "Product" AS p
@@ -60,6 +174,271 @@ export class OrdersService {
       FROM (VALUES ${Prisma.join(valueClauses)}) AS v(id, packs)
       WHERE p.id = v.id
     `;
+  }
+
+  /**
+   * Atomically restores promotion budget for multiple fixed-amount promotions in a single SQL roundtrip.
+   * Restores remainingAmount (capped by allocatedAmount if present) and decrements consumedAmount (protected by GREATEST(0, ...)).
+   * Enforces that all restored promotions exist in the database; throws error if any record is missing.
+   */
+  static async batchRestorePromotionBudget(
+    tx: any,
+    restorations: Array<{ promotionId: string; amount: number }>
+  ): Promise<void> {
+    if (!restorations || restorations.length === 0) return;
+
+    const consolidated = new Map<string, number>();
+    for (const r of restorations) {
+      if (!r.promotionId || typeof r.amount !== 'number' || !Number.isFinite(r.amount) || isNaN(r.amount) || r.amount <= 0) continue;
+      const roundedAmount = Math.round(r.amount * 100) / 100;
+      consolidated.set(r.promotionId, Math.round(((consolidated.get(r.promotionId) || 0) + roundedAmount) * 100) / 100);
+    }
+
+    const entries = Array.from(consolidated.entries()).filter(([_, amount]) => amount > 0);
+    if (entries.length === 0) return;
+
+    // Sort entries by promotionId ASC to enforce global lock hierarchy
+    entries.sort((a, b) => a[0].localeCompare(b[0]));
+
+    const valueClauses = entries.map(([id, amount]) => Prisma.sql`(${id}::text, ${amount}::double precision)`);
+    const updatedRows = await tx.$queryRaw<Array<{ id: string }>>`
+      UPDATE "Promotion" AS p
+      SET "remainingAmount" = CASE
+            WHEN p."remainingAmount" IS NOT NULL THEN
+              CASE
+                WHEN p."allocatedAmount" IS NOT NULL THEN LEAST(p."allocatedAmount", ROUND((p."remainingAmount" + v.amount)::numeric, 2)::double precision)
+                ELSE ROUND((p."remainingAmount" + v.amount)::numeric, 2)::double precision
+              END
+            ELSE NULL
+          END,
+          "consumedAmount" = GREATEST(0::double precision, ROUND((COALESCE(p."consumedAmount", 0) - v.amount)::numeric, 2)::double precision)
+      FROM (VALUES ${Prisma.join(valueClauses)}) AS v(id, amount)
+      WHERE p.id = v.id
+      RETURNING p.id
+    `;
+
+    if (updatedRows.length !== entries.length) {
+      const updatedSet = new Set(updatedRows.map((r: { id: string }) => r.id));
+      const missing = entries.filter(([id]) => !updatedSet.has(id)).map(([id]) => id);
+      throw new Error(`Не удалось восстановить промо-бюджет: промо-акции с ID [${missing.join(', ')}] не найдены в базе данных.`);
+    }
+  }
+
+  /**
+   * Validates and parses persisted appliedPromotions JSON metadata.
+   * Throws explicit error if the metadata is invalid or malformed.
+   * Enforces positive finite amounts and deterministically consolidates duplicate promotion IDs.
+   */
+  static parseAppliedPromotions(raw: any): AppliedPromotionDeduction[] {
+    if (raw === null || raw === undefined) {
+      throw new Error('Order appliedPromotions is null or undefined');
+    }
+    if (!Array.isArray(raw)) {
+      throw new Error('Поврежденные данные промо-акций: appliedPromotions должен быть массивом (invalid JSON).');
+    }
+    const consolidated = new Map<string, number>();
+    for (let i = 0; i < raw.length; i++) {
+      const item = raw[i];
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new Error(`Поврежденные данные промо-акций: элемент [${i}] не является объектом.`);
+      }
+      if (typeof item.promotionId !== 'string' || !item.promotionId.trim()) {
+        throw new Error(`Поврежденные данные промо-акций: элемент [${i}] не содержит корректного promotionId.`);
+      }
+      if (typeof item.amount !== 'number' || !Number.isFinite(item.amount) || isNaN(item.amount) || item.amount <= 0) {
+        throw new Error(`Поврежденные данные промо-акций: элемент [${i}] содержит некорректную сумму скидки (должно быть положительным конечным числом).`);
+      }
+      const promoId = item.promotionId.trim();
+      const rounded = Math.round(item.amount * 100) / 100;
+      if (rounded > 0) {
+        consolidated.set(promoId, Math.round(((consolidated.get(promoId) || 0) + rounded) * 100) / 100);
+      }
+    }
+
+    const result: AppliedPromotionDeduction[] = [];
+    const sortedIds = Array.from(consolidated.keys()).sort();
+    for (const id of sortedIds) {
+      result.push({
+        promotionId: id,
+        amount: consolidated.get(id)!
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Resolves the exact promotion budget deductions to restore for an order.
+   *
+   * Priority:
+   * 1. If explicit adminResolvedDeductions is provided: validate and return exact records.
+   * 2. If appliedPromotions is persisted: strictly validate and return exact records.
+   * 3. If appliedPromotions is null/undefined (Legacy Order):
+   *    a. Zero-discount orders: safely return [] (provably zero).
+   *    b. Orders with discounts: throw LegacyAmbiguousPromotionError to block automatic heuristic guessing.
+   */
+  static async resolveOrderPromotionDeductions(
+    order: {
+      id?: string;
+      orderNumber?: string;
+      appliedPromotions?: any;
+      items: any[];
+      companyId?: string | null;
+      totalPrice?: number | null;
+    },
+    options?: {
+      adminResolvedDeductions?: AppliedPromotionDeduction[];
+      session?: JWTPayload;
+    }
+  ): Promise<OrderPromotionResolution> {
+    // 1. Explicit admin override if provided
+    if (options?.adminResolvedDeductions) {
+      const isSuper = options?.session && (
+        options.session.role === 'ADMIN' ||
+        options.session.roleName === 'Суперадминистратор' ||
+        options.session.permissions?.includes('*')
+      );
+      if (!isSuper) {
+        const err: any = new Error('Только администраторы могут выполнять ручную сверку промо-бюджетов legacy-заказов.');
+        err.status = 403;
+        throw err;
+      }
+      const validated = OrdersService.parseAppliedPromotions(options.adminResolvedDeductions);
+      return {
+        isLegacy: true,
+        source: 'ADMIN_RESOLVED',
+        deductions: validated
+      };
+    }
+
+    // 2. Persisted exact records
+    if (order.appliedPromotions !== null && order.appliedPromotions !== undefined) {
+      const deductions = OrdersService.parseAppliedPromotions(order.appliedPromotions);
+      return {
+        isLegacy: false,
+        source: 'PERSISTED_EXACT',
+        deductions
+      };
+    }
+
+    // 3. Legacy order handling (appliedPromotions is null/undefined)
+    if (!order.items || order.items.length === 0) {
+      return {
+        isLegacy: true,
+        source: 'LEGACY_ZERO_DISCOUNT',
+        deductions: []
+      };
+    }
+
+    const baseItems: any[] = [];
+    let nominalSubtotal = 0;
+
+    for (const item of order.items) {
+      if (item.isBonus) continue;
+      const packs = item.baseQuantityPacks || item.quantityPacks || 0;
+      const price = item.price ?? 0;
+      if (packs <= 0 || price <= 0) continue;
+
+      nominalSubtotal += packs * price;
+      baseItems.push({
+        productId: item.productId,
+        baseQuantityPacks: packs,
+        price
+      });
+    }
+
+    const orderTotalPrice = order.totalPrice ?? nominalSubtotal;
+    const maxRecordedDiscount = Math.max(0, Math.round((nominalSubtotal - orderTotalPrice) * 100) / 100);
+
+    // 3a. Provably zero discount
+    if (baseItems.length === 0 || maxRecordedDiscount <= 0) {
+      return {
+        isLegacy: true,
+        source: 'LEGACY_ZERO_DISCOUNT',
+        deductions: []
+      };
+    }
+
+    // 3b. Ambiguous legacy order with discount: automatic heuristic estimation is strictly prohibited.
+    const orderIdentifier = order.orderNumber || order.id || 'неизвестный';
+    throw new LegacyAmbiguousPromotionError(
+      orderIdentifier,
+      `расчетный дисконт: ${maxRecordedDiscount.toLocaleString('ru-RU')} сум, позиций: ${baseItems.length}`
+    );
+  }
+
+  /**
+   * Reconstructs the exact fixed-amount promotion budget deductions that were
+   * previously applied and consumed for an existing order.
+   *
+   * Rather than summing arbitrary line-item discounts, this runs the pure calculation engine
+   * with ignoreBudgetLimits: true on the order's actual base items, and caps the result by
+   * the order's documented gross-to-net discount (nominalSubtotal - totalPrice).
+   */
+  static async calculatePreviousFixedAmountDeductions(
+    order: {
+      items: any[];
+      companyId?: string | null;
+      totalPrice?: number | null;
+    }
+  ): Promise<Array<{ promotionId: string; amount: number }>> {
+    if (!order.items || order.items.length === 0) return [];
+
+    const baseItems: any[] = [];
+    let nominalSubtotal = 0;
+
+    for (const item of order.items) {
+      if (item.isBonus) continue;
+      const packs = item.baseQuantityPacks || item.quantityPacks || 0;
+      const price = item.price ?? 0;
+      if (packs <= 0 || price <= 0) continue;
+
+      nominalSubtotal += packs * price;
+      baseItems.push({
+        productId: item.productId,
+        baseQuantityPacks: packs,
+        price
+      });
+    }
+
+    if (baseItems.length === 0) return [];
+
+    // If order had no discount relative to nominal pricing (e.g. manual pricing without promo), return empty
+    const orderTotalPrice = order.totalPrice ?? nominalSubtotal;
+    const maxRecordedDiscount = Math.max(0, Math.round((nominalSubtotal - orderTotalPrice) * 100) / 100);
+    if (maxRecordedDiscount <= 0) return [];
+
+    try {
+      const calcResult = await PromotionsService.calculateOrder(baseItems, order.companyId, { ignoreBudgetLimits: true });
+      if (!calcResult.fixedAmountDeductions || calcResult.fixedAmountDeductions.length === 0) {
+        return [];
+      }
+
+      // Isolate fixed-amount ceiling by subtracting percentage discounts (Stage 2)
+      const percentageDiscountAmount = Math.max(0, Math.round(((calcResult.stage1Price || 0) - (calcResult.stage2Price || 0)) * 100) / 100);
+      const maxFixedDiscountAllowed = Math.max(0, Math.round((maxRecordedDiscount - percentageDiscountAmount) * 100) / 100);
+      if (maxFixedDiscountAllowed <= 0) return [];
+
+      // Bound restored deductions by the isolated fixed-amount ceiling
+      let remainingAllowedDiscount = maxFixedDiscountAllowed;
+      const result: Array<{ promotionId: string; amount: number }> = [];
+
+      for (const d of calcResult.fixedAmountDeductions) {
+        if (!d.promotionId || d.amount <= 0) continue;
+        const cappedAmount = Math.min(d.amount, remainingAllowedDiscount);
+        if (cappedAmount > 0) {
+          result.push({
+            promotionId: d.promotionId,
+            amount: Math.round(cappedAmount * 100) / 100
+          });
+          remainingAllowedDiscount = Math.max(0, Math.round((remainingAllowedDiscount - cappedAmount) * 100) / 100);
+        }
+      }
+
+      return result;
+    } catch (err) {
+      console.error('[WARN] Failed to calculate previous fixed amount deductions for order:', err);
+      return [];
+    }
   }
 
   /**
@@ -536,7 +915,7 @@ export class OrdersService {
 
         if (!vi.isBonus && rawItem?.groupSkus && rawItem.groupSkus.length > 0) {
           // Multi-SKU group ordered by customer: allocate across SKUs by priority with available stock
-          const availableGroupSkus = rawItem.groupSkus.map(s => {
+          const availableGroupSkus = rawItem.groupSkus.map((s: any) => {
             const alreadyAllocated = stockTracker.get(s.id) || 0;
             const availableStock = Math.max(0, s.stockPacks - alreadyAllocated);
             return {
@@ -577,9 +956,6 @@ export class OrdersService {
     const preTransactionGapStart = performance.now();
 
     const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
-    const orderNumber = `ORD-${dateStr}-${timeStr}-${Math.floor(100 + Math.random() * 900)}`;
 
     let stockDeductionMs = 0;
     let promoDeductionMs = 0;
@@ -587,141 +963,194 @@ export class OrdersService {
     let orderItemSkuMs = 0;
 
     const txStart = performance.now();
-    const savedOrder = await prisma.$transaction(async (tx) => {
-      if (orderStatus === 'NEW') {
-        const stockStart = performance.now();
-        // Consolidate stock decrements per unique SKU to minimize queries and prevent race conditions
-        const stockDecrements = new Map<string, number>();
-        for (const allocs of itemAllocationsByIndex.values()) {
-          for (const alloc of allocs) {
-            stockDecrements.set(alloc.productId, (stockDecrements.get(alloc.productId) || 0) + alloc.packs);
-          }
-        }
+    let savedOrder: any = null;
+    let winningOrderNumber = '';
+    const MAX_ORDER_ATTEMPTS = 3;
 
-        // Conditional atomic batch update in a single SQL roundtrip
-        await OrdersService.batchDeductStock(tx, stockDecrements, productMap);
-        stockDeductionMs = Math.round(performance.now() - stockStart);
+    for (let attempt = 1; attempt <= MAX_ORDER_ATTEMPTS; attempt++) {
+      const attemptNow = new Date();
+      const attemptOrderNumber = OrdersService.generateOrderNumber(attemptNow);
 
-        // Deduct consumable fixed-amount promotion budgets
-        const promoDeductStart = performance.now();
-        for (const deduction of promoResult.fixedAmountDeductions) {
-          await tx.promotion.update({
-            where: { id: deduction.promotionId },
-            data: {
-              remainingAmount: { decrement: deduction.amount },
-              consumedAmount: { increment: deduction.amount }
+      try {
+        savedOrder = await prisma.$transaction(async (tx) => {
+          if (orderStatus === 'NEW') {
+            const stockStart = performance.now();
+            // Consolidate stock decrements per unique SKU to minimize queries and prevent race conditions
+            const stockDecrements = new Map<string, number>();
+            for (const allocs of itemAllocationsByIndex.values()) {
+              for (const alloc of allocs) {
+                stockDecrements.set(alloc.productId, (stockDecrements.get(alloc.productId) || 0) + alloc.packs);
+              }
             }
-          });
-        }
-        promoDeductionMs = Math.round(performance.now() - promoDeductStart);
-      }
 
-      const orderCreateStart = performance.now();
-      const order = await tx.order.create({
-        data: {
-          orderNumber,
-          customerId: customer.id,
-          companyId: session.companyId || null,
-          createdByUserId: session.userId,
-          status: orderStatus,
-          totalPacks: promoResult.totalPacks,
-          totalBlocks: promoResult.totalBlocks,
-          totalCases: promoResult.totalCases,
-          totalPrice: promoResult.totalPrice,
-          fileUrl: null,
-          fileId: null,
-          fileName: null,
-          createdAt: now,
-          updatedAt: now,
-          items: {
-            create: promoResult.items.map(vi => {
-              const rawItem = rawItems.find(r => r.productId === vi.productId);
-              const product = productMap.get(vi.productId);
-              const fallbackGroupId = vi.groupId || product?.groupId || null;
-              const fallbackGroupName = vi.groupDisplayName || (fallbackGroupId ? groupMap.get(fallbackGroupId)?.displayName : null);
-              return {
-                productId: vi.productId,
-                productNameSnapshot: vi.name,
-                skuSnapshot: vi.sku,
-                groupId: rawItem?.groupId || fallbackGroupId,
-                groupDisplayName: rawItem?.groupDisplayName || fallbackGroupName,
-                baseQuantityPacks: vi.baseQuantityPacks,
-                baseQuantityBlocks: vi.baseQuantityBlocks,
-                baseQuantityCases: vi.baseQuantityCases,
-                bonusQuantityPacks: vi.bonusQuantityPacks,
-                bonusQuantityBlocks: vi.bonusQuantityBlocks,
-                bonusQuantityCases: vi.bonusQuantityCases,
-                totalQuantityPacks: vi.totalQuantityPacks,
-                totalQuantityBlocks: vi.totalQuantityBlocks,
-                totalQuantityCases: vi.totalQuantityCases,
-                quantityPacks: vi.totalQuantityPacks,
-                quantityBlocks: vi.totalQuantityBlocks,
-                quantityCases: vi.totalQuantityCases,
-                price: vi.originalPrice,
-                effectivePrice: vi.effectivePrice,
-                itemTotalPrice: vi.itemTotalPrice,
-                promotionDiscount: vi.promotionDiscount,
-                isBonus: vi.isBonus,
-                promotionId: vi.promotionId || null,
-                promotionNote: vi.promotionNote || null
-              };
-            })
+            // Conditional atomic batch update in a single SQL roundtrip
+            await OrdersService.batchDeductStock(tx, stockDecrements, productMap);
+            stockDeductionMs = Math.round(performance.now() - stockStart);
+
+            // Atomically deduct consumable fixed-amount promotion budgets with DB-level limit enforcement
+            const promoDeductStart = performance.now();
+            await OrdersService.batchDeductPromotionBudget(tx, promoResult.fixedAmountDeductions);
+            promoDeductionMs = Math.round(performance.now() - promoDeductStart);
+
           }
-        },
-        select: {
-          id: true,
-          orderNumber: true,
-          customerId: true,
-          status: true,
-          totalPacks: true,
-          totalBlocks: true,
-          totalCases: true,
-          totalPrice: true,
-          fileUrl: true,
-          fileId: true,
-          fileName: true,
-          createdAt: true,
-          updatedAt: true,
-          items: {
+
+          // Establish concurrency lock on all applied promotions (SKU bonuses, percentage, fixed amount)
+          // for both NEW and DRAFT orders to prevent concurrent promotion deletion from creating dangling references
+          const allAppliedPromoIds = Array.from(new Set([
+            ...promoResult.items.map(i => i.promotionId).filter((id): id is string => Boolean(id)),
+            ...(promoResult.fixedAmountDeductions || []).map(d => d.promotionId).filter((id): id is string => Boolean(id))
+          ])).sort();
+
+          if (allAppliedPromoIds.length > 0) {
+            const activePromos = await tx.$queryRaw<Array<{ id: string }>>`
+              SELECT id
+              FROM "Promotion"
+              WHERE id = ANY(${allAppliedPromoIds}::text[])
+                AND "isActive" = true
+              ORDER BY id ASC
+              FOR SHARE
+            `;
+            if (activePromos.length !== allAppliedPromoIds.length) {
+              throw new Error('Одна или несколько примененных акций были изменены или удалены. Пожалуйста, обновите заказ.');
+            }
+          }
+
+          // Exact deductions committed to promotion budgets (empty for DRAFT or orders without fixed-amount promo)
+          const exactAppliedPromotions: AppliedPromotionDeduction[] = (orderStatus === 'NEW' && promoResult.fixedAmountDeductions)
+            ? promoResult.fixedAmountDeductions
+                .filter(d => d.promotionId && typeof d.amount === 'number' && d.amount > 0)
+                .map(d => ({
+                  promotionId: d.promotionId,
+                  amount: Math.round(d.amount * 100) / 100
+                }))
+            : [];
+
+          const orderCreateStart = performance.now();
+          const order = await tx.order.create({
+            data: {
+              orderNumber: attemptOrderNumber,
+              customerId: customer.id,
+              companyId: session.companyId || null,
+              createdByUserId: session.userId,
+              status: orderStatus,
+              totalPacks: promoResult.totalPacks,
+              totalBlocks: promoResult.totalBlocks,
+              totalCases: promoResult.totalCases,
+              totalPrice: promoResult.totalPrice,
+              appliedPromotions: exactAppliedPromotions as any,
+              fileUrl: null,
+              fileId: null,
+              fileName: null,
+              createdAt: attemptNow,
+              updatedAt: attemptNow,
+              items: {
+                create: promoResult.items.map(vi => {
+                  const rawItem = rawItems.find(r => r.productId === vi.productId);
+                  const product = productMap.get(vi.productId);
+                  const fallbackGroupId = vi.groupId || product?.groupId || null;
+                  const fallbackGroupName = vi.groupDisplayName || (fallbackGroupId ? groupMap.get(fallbackGroupId)?.displayName : null);
+                  return {
+                    productId: vi.productId,
+                    productNameSnapshot: vi.name,
+                    skuSnapshot: vi.sku,
+                    groupId: rawItem?.groupId || fallbackGroupId,
+                    groupDisplayName: rawItem?.groupDisplayName || fallbackGroupName,
+                    baseQuantityPacks: vi.baseQuantityPacks,
+                    baseQuantityBlocks: vi.baseQuantityBlocks,
+                    baseQuantityCases: vi.baseQuantityCases,
+                    bonusQuantityPacks: vi.bonusQuantityPacks,
+                    bonusQuantityBlocks: vi.bonusQuantityBlocks,
+                    bonusQuantityCases: vi.bonusQuantityCases,
+                    totalQuantityPacks: vi.totalQuantityPacks,
+                    totalQuantityBlocks: vi.totalQuantityBlocks,
+                    totalQuantityCases: vi.totalQuantityCases,
+                    quantityPacks: vi.totalQuantityPacks,
+                    quantityBlocks: vi.totalQuantityBlocks,
+                    quantityCases: vi.totalQuantityCases,
+                    price: vi.originalPrice,
+                    effectivePrice: vi.effectivePrice,
+                    itemTotalPrice: vi.itemTotalPrice,
+                    promotionDiscount: vi.promotionDiscount,
+                    isBonus: vi.isBonus,
+                    promotionId: vi.promotionId || null,
+                    promotionNote: vi.promotionNote || null
+                  };
+                })
+              }
+            },
             select: {
               id: true,
-              productId: true
+              orderNumber: true,
+              customerId: true,
+              status: true,
+              totalPacks: true,
+              totalBlocks: true,
+              totalCases: true,
+              totalPrice: true,
+              appliedPromotions: true,
+              fileUrl: true,
+              fileId: true,
+              fileName: true,
+              createdAt: true,
+              updatedAt: true,
+              items: {
+                select: {
+                  id: true,
+                  productId: true
+                }
+              }
             }
-          }
-        }
-      });
-      orderCreateMs = Math.round(performance.now() - orderCreateStart);
+          });
+          orderCreateMs = Math.round(performance.now() - orderCreateStart);
 
-      // Write per-SKU allocations in a single batch query (OrderItemSku)
-      if (orderStatus === 'NEW') {
-        const skuStart = performance.now();
-        const allSkuRows: any[] = [];
-        for (let i = 0; i < order.items.length; i++) {
-          const item = order.items[i];
-          const allocs = itemAllocationsByIndex.get(i) || itemAllocations.get(item.productId);
-          if (allocs && allocs.length > 0) {
-            for (const a of allocs) {
-              allSkuRows.push({
-                orderItemId: item.id,
-                productId: a.productId,
-                packs: a.packs,
-                sku: a.sku,
-                name: a.name
-              });
+          // Write per-SKU allocations in a single batch query (OrderItemSku)
+          if (orderStatus === 'NEW') {
+            const skuStart = performance.now();
+            const allSkuRows: any[] = [];
+            for (let i = 0; i < order.items.length; i++) {
+              const item = order.items[i];
+              const allocs = itemAllocationsByIndex.get(i) || itemAllocations.get(item.productId);
+              if (allocs && allocs.length > 0) {
+                for (const a of allocs) {
+                  allSkuRows.push({
+                    orderItemId: item.id,
+                    productId: a.productId,
+                    packs: a.packs,
+                    sku: a.sku,
+                    name: a.name
+                  });
+                }
+              }
             }
+            if (allSkuRows.length > 0) {
+              await tx.orderItemSku.createMany({ data: allSkuRows });
+            }
+            orderItemSkuMs = Math.round(performance.now() - skuStart);
           }
+
+          return order;
+        }, {
+          timeout: 10000,
+          maxWait: 5000
+        });
+
+        winningOrderNumber = attemptOrderNumber;
+        break; // Successfully committed transaction!
+      } catch (err: any) {
+        const isUniqueCollision =
+          err?.code === 'P2002' &&
+          (Array.isArray(err?.meta?.target)
+            ? err.meta.target.includes('orderNumber')
+            : String(err?.meta?.target || '').includes('orderNumber') || String(err?.message || '').includes('orderNumber'));
+
+        if (isUniqueCollision && attempt < MAX_ORDER_ATTEMPTS) {
+          console.warn(`[WARN] Order number collision detected for ${attemptOrderNumber} on attempt ${attempt}. Retrying with fresh order number...`);
+          continue;
         }
-        if (allSkuRows.length > 0) {
-          await tx.orderItemSku.createMany({ data: allSkuRows });
-        }
-        orderItemSkuMs = Math.round(performance.now() - skuStart);
+        throw err;
       }
+    }
 
-      return order;
-    }, {
-      timeout: 10000,
-      maxWait: 5000
-    });
     const transactionMs = Math.round(performance.now() - txStart);
     const transactionStageTotalMs = stockDeductionMs + promoDeductionMs + orderCreateMs + orderItemSkuMs;
 
@@ -729,7 +1158,7 @@ export class OrdersService {
     if (orderStatus === 'NEW') {
       void OrdersService.generateAndAttachExcel(
         savedOrder.id,
-        orderNumber,
+        winningOrderNumber,
         customer.name,
         promoResult.items.map((vi, idx) => ({
           ...vi,
@@ -751,7 +1180,7 @@ export class OrdersService {
     await AuditService.log({
       userId: customer.id,
       action: orderStatus === 'DRAFT' ? 'SAVE_DRAFT' : 'SUBMIT_ORDER',
-      details: `${orderStatus === 'DRAFT' ? 'Сохранен черновик' : 'Отправлен заказ'} ${orderNumber}. Стоимость: ${promoResult.totalPrice} UZS`,
+      details: `${orderStatus === 'DRAFT' ? 'Сохранен черновик' : 'Отправлен заказ'} ${winningOrderNumber}. Стоимость: ${promoResult.totalPrice} UZS`,
       newValue: diff.newValue,
       req
     });
@@ -762,19 +1191,36 @@ export class OrdersService {
 
     return {
       order: savedOrder,
-      message: orderStatus === 'NEW' 
-        ? `Заказ ${orderNumber} успешно оформлен!` 
-        : `Черновик ${orderNumber} сохранен.`
+      message: orderStatus === 'NEW'
+        ? `Заказ ${winningOrderNumber} успешно оформлен!`
+        : `Черновик ${winningOrderNumber} сохранен.`
     };
   }
 
   /**
    * PUT: Updates an existing DRAFT or NEW order (editing items).
    */
-  static async updateOrder(session: JWTPayload, data: { orderId: string; items: any[]; status: string }, req?: NextRequest) {
+  static async updateOrder(
+    session: JWTPayload,
+    data: {
+      orderId: string;
+      items: any[];
+      status: string;
+      adminResolvedDeductions?: AppliedPromotionDeduction[];
+      reconciliationReason?: string;
+    },
+    req?: NextRequest
+  ) {
     const totalStart = performance.now();
-    const { orderId, items, status } = data;
+    const { orderId, items, status, adminResolvedDeductions, reconciliationReason } = data;
     const orderStatus = status === 'NEW' ? 'NEW' : 'DRAFT';
+
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    if (adminResolvedDeductions && !isSuper) {
+      const err: any = new Error('Только администраторы могут выполнять ручную сверку промо-бюджетов legacy-заказов.');
+      err.status = 403;
+      throw err;
+    }
 
     const orderLookupStart = performance.now();
     const existingOrder = await prisma.order.findUnique({
@@ -790,33 +1236,55 @@ export class OrdersService {
     if (!existingOrder) throw new Error('Заказ не найден.');
 
     // 1. Permission-based edit checks
+    const isCustomerOwner = existingOrder.customerId === session.userId;
+    const isDraftAuthor = existingOrder.createdByUserId === session.userId || isCustomerOwner;
     const canViewAll = hasPermission(session, 'orders:view_all');
-    if (!canViewAll) {
-      if (existingOrder.companyId && session.companyId && existingOrder.companyId !== session.companyId) {
-        throw new Error('Нет доступа к заказам другой компании.');
-      }
-      if (!existingOrder.companyId && existingOrder.customerId !== session.userId) {
-        throw new Error('Нет доступа к этому заказу.');
-      }
-      if (existingOrder.status !== 'DRAFT') {
-        throw new Error('Клиент может редактировать только черновики.');
-      }
-    } else {
-      if (existingOrder.status !== 'DRAFT' && existingOrder.status !== 'NEW') {
-        throw new Error('Заказ можно редактировать только в статусе DRAFT или NEW.');
-      }
-      if (existingOrder.status === 'NEW') {
-        const isOwner = existingOrder.customerId === session.userId || existingOrder.createdByUserId === session.userId;
-        const isSameCompany = Boolean(session.companyId && existingOrder.companyId && session.companyId === existingOrder.companyId);
-        const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
-        if (!isSuper && !isOwner && !isSameCompany && !hasPermission(session, 'orders:validation:view')) {
-          throw new Error('Доступ запрещен (заказ ожидает валидации).');
+    const canEdit = hasPermission(session, 'orders:edit');
+
+    if (!isSuper) {
+      if (!canViewAll) {
+        // Customer / Client role: strictly allowed to edit only their own drafts within company boundary
+        if (existingOrder.companyId && (!session.companyId || existingOrder.companyId !== session.companyId)) {
+          throw new Error('Нет доступа к заказам другой компании.');
+        }
+        if (!existingOrder.companyId && !isCustomerOwner && !isDraftAuthor) {
+          throw new Error('Нет доступа к этому заказу.');
+        }
+        if (!isDraftAuthor && !isCustomerOwner) {
+          throw new Error('Черновик доступен для редактирования только его автору.');
+        }
+        if (existingOrder.status !== 'DRAFT') {
+          throw new Error('Клиент может редактировать только черновики.');
+        }
+      } else {
+        // Staff user editing an order MUST have explicit orders:edit permission.
+        // createdByUserId does NOT grant bypass of orders:edit for staff members.
+        if (!canEdit) {
+          throw new Error('У вас нет прав для редактирования этого заказа.');
+        }
+
+        // Enforce company boundary for staff unless they have global validation authority
+        if (existingOrder.companyId && session.companyId && existingOrder.companyId !== session.companyId) {
+          if (!hasPermission(session, 'orders:validation:view') && !hasPermission(session, 'orders:validation:accept')) {
+            throw new Error('Нет доступа к заказам другой компании.');
+          }
+        }
+
+        if (existingOrder.status !== 'DRAFT' && existingOrder.status !== 'NEW') {
+          throw new Error('Заказ можно редактировать только в статусе DRAFT или NEW.');
+        }
+
+        if (existingOrder.status === 'NEW') {
+          const isSameCompany = Boolean(session.companyId && existingOrder.companyId && session.companyId === existingOrder.companyId);
+          if (!isSameCompany && !hasPermission(session, 'orders:validation:view')) {
+            throw new Error('Доступ запрещен (заказ ожидает валидации).');
+          }
         }
       }
     }
 
     // 2. Prevent edit if order is locked in assembly, shipped, completed or cancelled
-    if (['ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'].includes(existingOrder.status)) {
+    if (['ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'].includes(existingOrder.status)) {
       throw new Error(`Редактирование заказа запрещено в статусе: ${existingOrder.status}.`);
     }
 
@@ -1085,26 +1553,104 @@ export class OrdersService {
 
     const txStart = performance.now();
     const updatedOrder = await prisma.$transaction(async (tx) => {
-      // Restore old stock from per-SKU allocation records
-      if (existingOrder.status === 'NEW') {
+      // 1. Acquire exclusive row lock on the Order record
+      const lockedRows = await tx.$queryRaw<Array<{
+        id: string;
+        orderNumber: string;
+        customerId: string;
+        companyId: string | null;
+        createdByUserId: string | null;
+        status: string;
+        totalPacks: number;
+        totalBlocks: number;
+        totalCases: number;
+        totalPrice: number;
+        appliedPromotions: any;
+        createdAt: Date;
+        updatedAt: Date;
+      }>>`
+        SELECT
+          id,
+          "orderNumber",
+          "customerId",
+          "companyId",
+          "createdByUserId",
+          status,
+          "totalPacks",
+          "totalBlocks",
+          "totalCases",
+          "totalPrice",
+          "appliedPromotions",
+          "createdAt",
+          "updatedAt"
+        FROM "Order"
+        WHERE id = ${orderId}
+        FOR UPDATE
+      `;
+
+      if (!lockedRows || lockedRows.length === 0) {
+        const err: any = new Error('Заказ не найден.');
+        err.status = 404;
+        throw err;
+      }
+
+      const currentOrder = lockedRows[0];
+
+      // Re-validate terminal states under authoritative row lock
+      if (['ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'].includes(currentOrder.status)) {
+        const err: any = new Error(`Редактирование заказа запрещено в статусе: ${currentOrder.status}.`);
+        if (currentOrder.status === 'CANCELLED') err.status = 409;
+        throw err;
+      }
+
+      if (currentOrder.status !== 'DRAFT' && currentOrder.status !== 'NEW') {
+        throw new Error('Заказ можно редактировать только в статусе DRAFT или NEW.');
+      }
+
+      const oldItems = await tx.orderItem.findMany({
+        where: { orderId },
+        include: { product: true }
+      });
+      const oldItemSkus = await tx.orderItemSku.findMany({
+        where: { orderItem: { orderId } }
+      });
+
+      let previousFixedDeductions: Array<{ promotionId: string; amount: number }> = [];
+      let legacyReconciliationUsed = false;
+
+      // Restore old stock and promo budget under lock from authoritative database state
+      if (currentOrder.status === 'NEW') {
         const restoreStart = performance.now();
-        const oldItemSkus = await tx.orderItemSku.findMany({
-          where: { orderItem: { orderId } }
-        });
+        const resolution = await OrdersService.resolveOrderPromotionDeductions(
+          {
+            ...currentOrder,
+            items: oldItems
+          },
+          {
+            adminResolvedDeductions,
+            session
+          }
+        );
+        previousFixedDeductions = resolution.deductions;
+        if (resolution.source === 'ADMIN_RESOLVED') {
+          legacyReconciliationUsed = true;
+        }
+
         const restoreMap = new Map<string, number>();
         if (oldItemSkus.length > 0) {
           for (const sku of oldItemSkus) {
             restoreMap.set(sku.productId, (restoreMap.get(sku.productId) || 0) + sku.packs);
           }
         } else {
-          for (const oldItem of existingOrder.items) {
+          for (const oldItem of oldItems) {
             const oldQty = oldItem.totalQuantityPacks ?? oldItem.quantityPacks ?? 0;
-            if (typeof oldQty === 'number' && !isNaN(oldQty) && oldQty > 0) {
+            if (typeof oldQty === 'number' && Number.isFinite(oldQty) && oldQty > 0) {
               restoreMap.set(oldItem.productId, (restoreMap.get(oldItem.productId) || 0) + oldQty);
             }
           }
         }
         await OrdersService.batchRestoreStock(tx, restoreMap);
+        await OrdersService.batchRestorePromotionBudget(tx, previousFixedDeductions);
         await tx.orderItemSku.deleteMany({ where: { orderItem: { orderId } } });
         stockRestoreMs = Math.round(performance.now() - restoreStart);
       }
@@ -1123,25 +1669,44 @@ export class OrdersService {
         await OrdersService.batchDeductStock(tx, stockDecrements, productMap);
         stockDeductionMs = Math.round(performance.now() - stockStart);
 
-        // Deduct consumable fixed-amount promotion budgets
+        // Atomically deduct consumable fixed-amount promotion budgets with DB-level limit enforcement
         const promoDeductStart = performance.now();
-        for (const deduction of fixedAmountDeductions) {
-          await tx.promotion.update({
-            where: { id: deduction.promotionId },
-            data: {
-              remainingAmount: { decrement: deduction.amount },
-              consumedAmount: { increment: deduction.amount }
-            }
-          });
-        }
+        await OrdersService.batchDeductPromotionBudget(tx, fixedAmountDeductions);
         promoDeductionMs = Math.round(performance.now() - promoDeductStart);
+
+      }
+
+      // Establish concurrency lock on all applied promotions (SKU bonuses, percentage, fixed amount)
+      // for both NEW and DRAFT orders to prevent concurrent promotion deletion from creating dangling references
+      const allAppliedPromoIds = Array.from(new Set([
+        ...processedItems.map(i => i.promotionId).filter((id): id is string => Boolean(id)),
+        ...(fixedAmountDeductions || []).map(d => d.promotionId).filter((id): id is string => Boolean(id))
+      ])).sort();
+
+      if (allAppliedPromoIds.length > 0) {
+        const activePromos = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id
+          FROM "Promotion"
+          WHERE id = ANY(${allAppliedPromoIds}::text[])
+            AND "isActive" = true
+          ORDER BY id ASC
+          FOR SHARE
+        `;
+        if (activePromos.length !== allAppliedPromoIds.length) {
+          throw new Error('Одна или несколько примененных акций были изменены или удалены. Пожалуйста, обновите заказ.');
+        }
       }
 
       const deleteItemsStart = performance.now();
       await tx.orderItem.deleteMany({ where: { orderId } });
       orderDeleteItemsMs = Math.round(performance.now() - deleteItemsStart);
 
-      const createdAtUpdate = (orderStatus === 'DRAFT' || (existingOrder.status === 'DRAFT' && orderStatus === 'NEW')) ? now : existingOrder.createdAt;
+      const createdAtUpdate = (orderStatus === 'DRAFT' || (currentOrder.status === 'DRAFT' && orderStatus === 'NEW')) ? now : currentOrder.createdAt;
+
+      // Exact deductions committed to promotion budgets for the updated order
+      const newAppliedPromotionsToPersist: AppliedPromotionDeduction[] = (orderStatus === 'NEW' && fixedAmountDeductions && fixedAmountDeductions.length > 0)
+        ? OrdersService.parseAppliedPromotions(fixedAmountDeductions)
+        : [];
 
       const orderUpdateStart = performance.now();
       const order = await tx.order.update({
@@ -1152,6 +1717,7 @@ export class OrdersService {
           totalBlocks,
           totalCases,
           totalPrice,
+          appliedPromotions: newAppliedPromotionsToPersist as any,
           fileUrl: null,
           fileId: null,
           fileName: null,
@@ -1208,6 +1774,7 @@ export class OrdersService {
           totalBlocks: true,
           totalCases: true,
           totalPrice: true,
+          appliedPromotions: true,
           fileUrl: true,
           fileId: true,
           fileName: true,
@@ -1246,6 +1813,30 @@ export class OrdersService {
           await tx.orderItemSku.createMany({ data: allSkuRows });
         }
         orderItemSkuMs = Math.round(performance.now() - skuStart);
+      }
+
+      if (legacyReconciliationUsed) {
+        let auditUserId: string | null = null;
+        if (session.userId) {
+          const u = await tx.user.findUnique({ where: { id: session.userId }, select: { id: true } });
+          if (u) auditUserId = u.id;
+        }
+        await tx.auditLog.create({
+          data: {
+            userId: auditUserId,
+            action: 'RECONCILE_LEGACY_PROMOTION_BUDGET',
+            details: JSON.stringify({
+              orderId: currentOrder.id,
+              orderNumber: currentOrder.orderNumber,
+              resolvedBy: session.name || session.email || session.userId,
+              resolvedByUserId: session.userId,
+              reconciledDeductions: previousFixedDeductions,
+              reason: reconciliationReason || 'Ручная сверка промо-бюджета legacy-заказа при редактировании'
+            }),
+            oldValue: 'LEGACY_UNRECORDED',
+            newValue: JSON.stringify(previousFixedDeductions)
+          }
+        });
       }
 
       return order;
@@ -1310,10 +1901,16 @@ export class OrdersService {
    */
   static async updateOrderStatus(
     session: JWTPayload,
-    data: { orderId: string; status: string; reason?: string },
+    data: {
+      orderId: string;
+      status: string;
+      reason?: string;
+      adminResolvedDeductions?: AppliedPromotionDeduction[];
+      reconciliationReason?: string;
+    },
     req?: NextRequest
   ) {
-    const { orderId, status, reason } = data;
+    const { orderId, status, reason, adminResolvedDeductions, reconciliationReason } = data;
     const VALID_STATUSES = ['NEW', 'ACCEPTED', 'ASSEMBLY', 'SHIPPED', 'COMPLETED', 'CANCELLED'];
 
     if (!VALID_STATUSES.includes(status)) {
@@ -1322,85 +1919,144 @@ export class OrdersService {
       throw err;
     }
 
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: { include: { product: true } } }
-    });
-
-    if (!order) {
-      const err: any = new Error('Заказ не найден.');
-      err.status = 404;
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    if (adminResolvedDeductions && !isSuper) {
+      const err: any = new Error('Только администраторы могут выполнять ручную сверку промо-бюджетов legacy-заказов.');
+      err.status = 403;
       throw err;
     }
 
-    if (order.status === status) {
-      if (status === 'CANCELLED') {
-        const err: any = new Error('Заказ уже отменен.');
+    let previousStatusForAudit = '';
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      // 1. Acquire exclusive row lock on the Order record
+      const lockedRows = await tx.$queryRaw<Array<{
+        id: string;
+        orderNumber: string;
+        customerId: string;
+        companyId: string | null;
+        createdByUserId: string | null;
+        status: string;
+        totalPacks: number;
+        totalBlocks: number;
+        totalCases: number;
+        totalPrice: number;
+        appliedPromotions: any;
+        createdAt: Date;
+        updatedAt: Date;
+      }>>`
+        SELECT
+          id,
+          "orderNumber",
+          "customerId",
+          "companyId",
+          "createdByUserId",
+          status,
+          "totalPacks",
+          "totalBlocks",
+          "totalCases",
+          "totalPrice",
+          "appliedPromotions",
+          "createdAt",
+          "updatedAt"
+        FROM "Order"
+        WHERE id = ${orderId}
+        FOR UPDATE
+      `;
+
+      if (!lockedRows || lockedRows.length === 0) {
+        const err: any = new Error('Заказ не найден.');
+        err.status = 404;
+        throw err;
+      }
+
+      const currentOrder = lockedRows[0];
+      const oldStatus = currentOrder.status;
+      previousStatusForAudit = oldStatus;
+
+      // Enforce company boundary and tenant authorization under authoritative row lock
+      if (!isSuper) {
+        const canViewAll = hasPermission(session, 'orders:view_all');
+        if (!canViewAll) {
+          if (currentOrder.companyId && (!session.companyId || currentOrder.companyId !== session.companyId)) {
+            const err: any = new Error('Нет доступа к заказам другой компании.');
+            err.status = 403;
+            throw err;
+          }
+          if (!currentOrder.companyId && currentOrder.customerId !== session.userId && currentOrder.createdByUserId !== session.userId) {
+            const err: any = new Error('Нет доступа к этому заказу.');
+            err.status = 403;
+            throw err;
+          }
+        } else {
+          // Staff user with companyId can only modify their company's orders unless they have global validation authority
+          if (currentOrder.companyId && session.companyId && currentOrder.companyId !== session.companyId) {
+            if (!hasPermission(session, 'orders:validation:view') && !hasPermission(session, 'orders:validation:accept')) {
+              const err: any = new Error('Нет доступа к заказам другой компании.');
+              err.status = 403;
+              throw err;
+            }
+          }
+        }
+      }
+
+      if (oldStatus === status) {
+        if (status === 'CANCELLED') {
+          const err: any = new Error('Заказ уже отменен.');
+          err.status = 409;
+          throw err;
+        }
+        return currentOrder;
+      }
+
+      // Lifecycle transitions validation
+      // 1. CANCELLED is final terminal state
+      if (oldStatus === 'CANCELLED') {
+        const err: any = new Error('Нельзя изменить статус отмененного заказа.');
         err.status = 409;
         throw err;
       }
-      return { order, message: 'Статус уже установлен.' };
-    }
 
-    const oldStatus = order.status;
+      // 2. Terminal state protection: SHIPPED or COMPLETED cannot be cancelled
+      if (status === 'CANCELLED' && (oldStatus === 'SHIPPED' || oldStatus === 'COMPLETED')) {
+        const err: any = new Error(`Нельзя отменить исполненный заказ в статусе "${oldStatus}".`);
+        err.status = 409;
+        throw err;
+      }
 
-    // Lifecycle transitions validation
-    // 1. CANCELLED is final terminal state
-    if (oldStatus === 'CANCELLED') {
-      const err: any = new Error('Нельзя изменить статус отмененного заказа.');
-      err.status = 409;
-      throw err;
-    }
+      // 3. Status can only be cancelled from DRAFT, NEW, ACCEPTED, ASSEMBLY
+      if (status === 'CANCELLED' && !['DRAFT', 'NEW', 'ACCEPTED', 'ASSEMBLY'].includes(oldStatus)) {
+        const err: any = new Error(`Нельзя отменить заказ в статусе "${oldStatus}".`);
+        err.status = 400;
+        throw err;
+      }
 
-    // 2. Terminal state protection: SHIPPED or COMPLETED cannot be cancelled
-    if (status === 'CANCELLED' && (oldStatus === 'SHIPPED' || oldStatus === 'COMPLETED')) {
-      const err: any = new Error(`Нельзя отменить исполненный заказ в статусе "${oldStatus}".`);
-      err.status = 409;
-      throw err;
-    }
-
-    const shouldRevertStock = status === 'CANCELLED' && ['NEW', 'ACCEPTED', 'ASSEMBLY'].includes(oldStatus);
-
-    const updatedOrder = await prisma.$transaction(async (tx) => {
       if (status === 'CANCELLED') {
-        const allowedSourceStatuses = oldStatus === 'DRAFT' ? ['DRAFT'] : ['NEW', 'ACCEPTED', 'ASSEMBLY'];
-        const updateResult = await tx.order.updateMany({
-          where: {
-            id: orderId,
-            status: { in: allowedSourceStatuses }
-          },
-          data: {
-            status: 'CANCELLED'
-          }
-        });
+        const shouldRevertStock = ['NEW', 'ACCEPTED', 'ASSEMBLY'].includes(oldStatus);
+        let cancelPromoDeductions: AppliedPromotionDeduction[] = [];
+        let legacyReconciliationUsed = false;
 
-        if (updateResult.count === 0) {
-          const freshOrder = await tx.order.findUnique({
-            where: { id: orderId },
-            select: { id: true, status: true }
-          });
-          if (!freshOrder) {
-            const err: any = new Error('Заказ не найден.');
-            err.status = 404;
-            throw err;
-          }
-          if (freshOrder.status === 'CANCELLED') {
-            const err: any = new Error('Заказ уже отменен.');
-            err.status = 409;
-            throw err;
-          }
-          if (freshOrder.status === 'SHIPPED' || freshOrder.status === 'COMPLETED') {
-            const err: any = new Error(`Нельзя отменить исполненный заказ в статусе "${freshOrder.status}".`);
-            err.status = 409;
-            throw err;
-          }
-          const err: any = new Error(`Нельзя отменить заказ в статусе "${freshOrder.status}".`);
-          err.status = 400;
-          throw err;
-        }
-
-        // Only the atomic winner executes stock & promotion reversal
         if (shouldRevertStock) {
+          const orderItems = await tx.orderItem.findMany({
+            where: { orderId },
+            include: { product: true }
+          });
+
+          const resolution = await OrdersService.resolveOrderPromotionDeductions(
+            {
+              ...currentOrder,
+              items: orderItems
+            },
+            {
+              adminResolvedDeductions,
+              session
+            }
+          );
+          cancelPromoDeductions = resolution.deductions;
+          if (resolution.source === 'ADMIN_RESOLVED') {
+            legacyReconciliationUsed = true;
+          }
+
           // Prefer restoring from granular OrderItemSku records
           const oldItemSkus = await tx.orderItemSku.findMany({
             where: { orderItem: { orderId } }
@@ -1412,36 +2068,27 @@ export class OrdersService {
             }
           } else {
             // Fallback for legacy orders without OrderItemSku records
-            for (const item of order.items) {
+            for (const item of orderItems) {
               const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
               if (typeof qty !== 'number' || isNaN(qty) || qty <= 0) continue;
               restoreMap.set(item.productId, (restoreMap.get(item.productId) || 0) + qty);
             }
           }
           await OrdersService.batchRestoreStock(tx, restoreMap);
-
-          // Restore consumable fixed amount budgets if any fixed-amount promotions were applied
-          const promoIds = Array.from(new Set(order.items.map(i => i.promotionId).filter(Boolean)));
-          if (promoIds.length > 0) {
-            const fixedPromos = await tx.promotion.findMany({
-              where: { id: { in: promoIds as string[] }, type: 'ORDER_FIXED_AMOUNT' }
-            });
-            for (const promo of fixedPromos) {
-              const promoDiscount = order.items
-                .filter(i => i.promotionId === promo.id)
-                .reduce((sum, i) => sum + (i.promotionDiscount || 0), 0);
-              if (promoDiscount > 0) {
-                await tx.promotion.update({
-                  where: { id: promo.id },
-                  data: {
-                    remainingAmount: { increment: promoDiscount },
-                    consumedAmount: { decrement: promoDiscount }
-                  }
-                });
-              }
-            }
-          }
+          await OrdersService.batchRestorePromotionBudget(tx, cancelPromoDeductions);
         }
+
+        const cancelledOrder = await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: 'CANCELLED',
+            appliedPromotions: []
+          },
+          include: {
+            customer: { select: { name: true, email: true } },
+            items: { include: { product: true } }
+          }
+        });
 
         // Record CANCEL_ORDER in AuditLog inside transaction
         let auditUserId: string | null = null;
@@ -1455,14 +2102,14 @@ export class OrdersService {
             userId: auditUserId,
             action: 'CANCEL_ORDER',
             details: JSON.stringify({
-              orderId: order.id,
-              orderNumber: order.orderNumber,
+              orderId: currentOrder.id,
+              orderNumber: currentOrder.orderNumber,
               cancelledBy: session.name || session.email || session.userId,
               cancelledByUserId: session.userId,
               previousStatus: oldStatus,
-              totalPacks: order.totalPacks,
-              totalPrice: order.totalPrice,
-              itemCount: order.items.length,
+              totalPacks: currentOrder.totalPacks,
+              totalPrice: currentOrder.totalPrice,
+              restoredDeductions: cancelPromoDeductions,
               reason: reason || 'Отмена заказа пользователем',
               stockReverted: shouldRevertStock
             }),
@@ -1471,18 +2118,32 @@ export class OrdersService {
           }
         });
 
-        return await tx.order.findUniqueOrThrow({
-          where: { id: orderId },
-          include: {
-            customer: { select: { name: true, email: true } },
-            items: { include: { product: true } }
-          }
-        });
+        if (legacyReconciliationUsed) {
+          await tx.auditLog.create({
+            data: {
+              userId: auditUserId,
+              action: 'RECONCILE_LEGACY_PROMOTION_BUDGET',
+              details: JSON.stringify({
+                orderId: currentOrder.id,
+                orderNumber: currentOrder.orderNumber,
+                resolvedBy: session.name || session.email || session.userId,
+                resolvedByUserId: session.userId,
+                reconciledDeductions: cancelPromoDeductions,
+                reason: reconciliationReason || 'Ручная сверка промо-бюджета legacy-заказа при отмене'
+              }),
+              oldValue: 'LEGACY_UNRECORDED',
+              newValue: JSON.stringify(cancelPromoDeductions)
+            }
+          });
+        }
+
+        return cancelledOrder;
       }
 
       // If reverting from CANCELLED status (should be blocked by lifecycle validation anyway, but keeping stock safe)
       if (oldStatus === 'CANCELLED' && status !== 'CANCELLED' && status !== 'DRAFT') {
-        for (const item of order.items) {
+        const orderItems = await tx.orderItem.findMany({ where: { orderId } });
+        for (const item of orderItems) {
           const qty = item.totalQuantityPacks ?? item.quantityPacks ?? 0;
           if (typeof qty !== 'number' || isNaN(qty) || qty <= 0) {
             throw new Error(`Invalid quantity for product ${item.productId}`);
@@ -1506,14 +2167,17 @@ export class OrdersService {
           items: { include: { product: true } }
         }
       });
+    }, {
+      timeout: 10000,
+      maxWait: 5000
     });
 
     if (status !== 'CANCELLED') {
       await AuditService.log({
         userId: session.userId,
         action: 'CHANGE_ORDER_STATUS',
-        details: `Пользователь (${session.role}) изменил статус заказа ${order.orderNumber} с ${oldStatus} на ${status}`,
-        oldValue: oldStatus,
+        details: `Пользователь (${session.role}) изменил статус заказа ${updatedOrder.orderNumber} с ${previousStatusForAudit} на ${status}`,
+        oldValue: previousStatusForAudit,
         newValue: status,
         req
       });
@@ -1522,8 +2186,8 @@ export class OrdersService {
     return {
       order: updatedOrder,
       message: status === 'CANCELLED'
-        ? `Заказ ${order.orderNumber} успешно отменен.`
-        : `Статус заказа ${order.orderNumber} изменен на "${status}"`
+        ? `Заказ ${updatedOrder.orderNumber} успешно отменен.`
+        : `Статус заказа ${updatedOrder.orderNumber} изменен на "${status}"`
     };
   }
 
@@ -1606,6 +2270,7 @@ export class OrdersService {
         orderNumber: true,
         status: true,
         customerId: true,
+        createdByUserId: true,
         companyId: true,
       }
     });
@@ -1618,11 +2283,19 @@ export class OrdersService {
       throw new Error('Удалить можно только черновик заказа.');
     }
 
-    const isStaff = hasPermission(session, 'orders:view_all') || hasPermission(session, 'orders:edit');
-    if (!isStaff) {
-      const isOwner = order.customerId === session.userId || (session.companyId && order.companyId === session.companyId);
-      if (!isOwner) {
-        throw new Error('У вас нет прав для удаления этого черновика.');
+    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isOwner = order.customerId === session.userId || (order as any).createdByUserId === session.userId;
+    const hasDeletePermission = hasPermission(session, 'orders:delete_draft') || hasPermission(session, 'orders:delete');
+
+    if (!isSuper) {
+      if (hasDeletePermission) {
+        if (session.companyId && order.companyId && session.companyId !== order.companyId && !hasPermission(session, 'orders:view_all')) {
+          throw new Error('У вас нет прав для удаления черновика другой компании.');
+        }
+      } else {
+        if (!isOwner) {
+          throw new Error('У вас нет прав для удаления этого черновика.');
+        }
       }
     }
 
