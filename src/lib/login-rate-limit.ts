@@ -27,7 +27,12 @@ async function locked<T>(keys: string[], operation: (tx: Prisma.TransactionClien
   const ordered = [...new Set(keys)].sort();
   return prisma.$transaction(async (tx) => {
     for (const key of ordered) {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+      // PostgreSQL advisory lock functions return the `void` pseudo-type, which
+      // Prisma cannot deserialize from $queryRaw. Cast the result to text while
+      // retaining the lock side effect for this transaction.
+      await tx.$queryRaw<Array<{ lock_acquired: string }>>`
+        SELECT pg_advisory_xact_lock(hashtext(${key}))::text AS lock_acquired
+      `;
     }
     return operation(tx);
   });
