@@ -19,7 +19,7 @@ export class AuditService {
 
     if (req) {
       // Extract IP address safely in Next.js Edge / Node environment
-      ipAddress = req.headers.get('x-forwarded-for') || req.ip || null;
+      ipAddress = req.headers.get('x-real-ip') || req.headers.get('x-forwarded-for') || null;
       if (ipAddress && ipAddress.includes(',')) {
         ipAddress = ipAddress.split(',')[0].trim();
       }

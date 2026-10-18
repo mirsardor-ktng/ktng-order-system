@@ -96,27 +96,27 @@ export class ProductGroupService {
       .filter(g => {
         if (!search) return true;
         return g.displayName.toLowerCase().includes(search.toLowerCase()) ||
-          g.skus.some(s => s.sku.toLowerCase().includes(search.toLowerCase()));
+          g.skus.some((s: any) => s.sku.toLowerCase().includes(search.toLowerCase()));
       })
       .filter(g => {
         if (!favoritesOnly) return true;
-        return g.skus.some(s => s.isFavorite);
+        return g.skus.some((s: any) => s.isFavorite);
       })
       .map(g => {
         const primarySku = g.skus[0]; // sorted by priority asc — lowest number = first
-        const totalStock = g.skus.reduce((sum, s) => sum + s.stockPacks, 0);
+        const totalStock = g.skus.reduce((sum: number, s: any) => sum + s.stockPacks, 0);
         return {
           // Expose as a "Product-like" object so catalog UI needs minimal changes
           id: g.id,          // use groupId as the catalog item ID
           isGroup: true,
           displayName: g.displayName,
           name: g.displayName,
-          sku: g.skus.map(s => s.sku).join(', '),
+          sku: g.skus.map((s: any) => s.sku).join(', '),
           imageUrl: primarySku.imageUrl,
           basePrice: primarySku.basePrice,
           stockPacks: totalStock,
           isActive: g.isActive,
-          isFavorite: g.skus.some(s => s.isFavorite),
+          isFavorite: g.skus.some((s: any) => s.isFavorite),
           tags: primarySku.tags,
           skus: g.skus,
           groupId: g.id

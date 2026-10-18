@@ -159,7 +159,7 @@ function calculateTopGrowingProduct(orders: any[]): { name: string; growth: numb
     // We only calculate growth if there was sales in previous month to prevent division by zero
     if (prevRev > 0) {
       const growth = calculatePercentageChange(p.revenue, prevRev);
-      if (growth > maxGrowth) {
+      if (growth !== null && growth > maxGrowth) {
         maxGrowth = growth;
         topProduct = p.name;
       }

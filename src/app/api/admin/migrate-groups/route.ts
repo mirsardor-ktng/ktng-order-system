@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
 
 /**
@@ -8,10 +8,7 @@ import { ProductGroupService } from '@/lib/product-groups/product-groups.service
  * Idempotent — safe to run multiple times.
  */
 export async function POST(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 });
-  }
+  await requirePermissionAsync(req, 'product_groups:manage');
 
   const result = await ProductGroupService.migrateUngroupedProducts();
 

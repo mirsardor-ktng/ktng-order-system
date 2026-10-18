@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync, isSuperAdmin } from '@/lib/auth';
 import { uploadFile } from '@/lib/gdrive';
 import { encrypt } from '@/lib/security';
 
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    requirePermission(req, ['users:read', 'users:manage']);
+    await requirePermissionAsync(req, ['users:read', 'users:manage']);
 
     const users = await prisma.user.findMany({
       select: {
@@ -70,12 +70,16 @@ function getLegacyRoleFromTemplateName(templateName?: string | null): 'ADMIN' | 
  */
 export async function POST(req: NextRequest) {
   try {
-    const adminSession = requirePermission(req, 'users:manage');
+    const adminSession = await requirePermissionAsync(req, 'users:manage');
     const body = await req.json();
     const { name, email, password, roleTemplateId, role, companyId } = body;
 
-    if (!name || !email || !password) {
-      return NextResponse.json({ error: 'Не все обязательные поля заполнены.' }, { status: 400 });
+    if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !email.trim() ||
+        typeof password !== 'string' || password.length < 12 || password.length > 128) {
+      return NextResponse.json({ error: 'Укажите имя, email и пароль длиной от 12 до 128 символов.' }, { status: 400 });
+    }
+    if (role !== undefined && !['ADMIN', 'SELLER', 'MANAGER', 'CUSTOMER'].includes(role)) {
+      return NextResponse.json({ error: 'Недопустимая роль.' }, { status: 400 });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
@@ -95,9 +99,11 @@ export async function POST(req: NextRequest) {
 
     if (resolvedRoleTemplateId) {
       const template = await prisma.roleTemplate.findUnique({ where: { id: resolvedRoleTemplateId } });
-      if (template) {
-        legacyRole = getLegacyRoleFromTemplateName(template.name);
+      if (!template) return NextResponse.json({ error: 'Шаблон роли не найден.' }, { status: 400 });
+      if (!isSuperAdmin(adminSession) && (template.name === 'Суперадминистратор' || template.permissions.some((permission) => !adminSession.permissions?.includes(permission)))) {
+        return NextResponse.json({ error: 'Нельзя назначить права, которыми вы не обладаете.' }, { status: 403 });
       }
+      legacyRole = getLegacyRoleFromTemplateName(template.name);
     } else {
       // Find matching default role template if only legacy role was provided
       let targetName = 'Клиент B2B (Заказчик)';
@@ -112,8 +118,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!resolvedRoleTemplateId && legacyRole === 'ADMIN') {
+      return NextResponse.json({ error: 'Для назначения административных прав требуется разрешённый шаблон роли.' }, { status: 403 });
+    }
+
     // Hash password with bcrypt
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     const newUser = await prisma.user.create({
       data: {
@@ -170,12 +180,19 @@ export async function POST(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   try {
-    const adminSession = requirePermission(req, 'users:manage');
+    const adminSession = await requirePermissionAsync(req, 'users:manage');
     const body = await req.json();
     const { id, name, email, password, roleTemplateId, role, companyId, isActive } = body;
 
-    if (!id) {
+    if (typeof id !== 'string' || !id) {
       return NextResponse.json({ error: 'Не указан ID пользователя.' }, { status: 400 });
+    }
+    if (name !== undefined && (typeof name !== 'string' || !name.trim()) ||
+        email !== undefined && (typeof email !== 'string' || !email.trim()) ||
+        password !== undefined && (typeof password !== 'string' || password.length < 12 || password.length > 128) ||
+        isActive !== undefined && typeof isActive !== 'boolean' ||
+        role !== undefined && !['ADMIN', 'SELLER', 'MANAGER', 'CUSTOMER'].includes(role)) {
+      return NextResponse.json({ error: 'Некорректные данные пользователя.' }, { status: 400 });
     }
 
     const existingUser = await prisma.user.findUnique({
@@ -193,25 +210,41 @@ export async function PUT(req: NextRequest) {
     if (companyId !== undefined) updateData.companyId = companyId || null;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (password) {
-      updateData.passwordHash = await bcrypt.hash(password, 10);
+      updateData.passwordHash = await bcrypt.hash(password, 12);
     }
 
     if (roleTemplateId !== undefined) {
       updateData.roleTemplateId = roleTemplateId || null;
       if (roleTemplateId) {
         const tpl = await prisma.roleTemplate.findUnique({ where: { id: roleTemplateId } });
-        updateData.role = getLegacyRoleFromTemplateName(tpl?.name);
+        if (!tpl) return NextResponse.json({ error: 'Шаблон роли не найден.' }, { status: 400 });
+        if (!isSuperAdmin(adminSession) && (tpl.name === 'Суперадминистратор' || tpl.permissions.some((permission) => !adminSession.permissions?.includes(permission)))) {
+          return NextResponse.json({ error: 'Нельзя назначить права, которыми вы не обладаете.' }, { status: 403 });
+        }
+        updateData.role = getLegacyRoleFromTemplateName(tpl.name);
       } else {
         updateData.role = 'CUSTOMER';
       }
     } else if (role) {
+      if (role === 'ADMIN' && !isSuperAdmin(adminSession)) {
+        return NextResponse.json({ error: 'Недостаточно прав для назначения административной роли.' }, { status: 403 });
+      }
       updateData.role = role;
+    }
+
+    if (password !== undefined || roleTemplateId !== undefined || role !== undefined || companyId !== undefined || isActive !== undefined) {
+      updateData.sessionVersion = { increment: 1 };
     }
 
     const updatedUser = await prisma.user.update({
       where: { id },
       data: updateData,
-      include: { roleTemplate: true, company: true }
+      select: {
+        id: true, name: true, email: true, role: true, roleTemplateId: true, companyId: true,
+        isActive: true, createdAt: true, updatedAt: true,
+        roleTemplate: { select: { id: true, name: true, isSystem: true, defaultDashboard: true, permissions: true } },
+        company: { select: { id: true, name: true } }
+      }
     });
 
     // Audit logs
@@ -243,7 +276,7 @@ export async function PUT(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
-    const adminSession = requirePermission(req, 'users:manage');
+    const adminSession = await requirePermissionAsync(req, 'users:manage');
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('id');
 
@@ -300,6 +333,7 @@ async function triggerGDriveUsersBackup() {
         id: true,
         email: true,
         name: true,
+        passwordHash: true,
         role: true,
         roleTemplateId: true,
         roleTemplate: {
@@ -309,9 +343,12 @@ async function triggerGDriveUsersBackup() {
       }
     });
 
-    const keySetting = await prisma.systemSetting.findUnique({ where: { key: 'BACKUP_ENCRYPTION_KEY' } });
-    const key = keySetting?.value || 'B2BSecureSystemPassphrase2026';
-    
+    const key = process.env.BACKUP_ENCRYPTION_KEY;
+    if (!key || key.length < 32) {
+      console.warn('[Backup] User backup skipped: BACKUP_ENCRYPTION_KEY is not configured.');
+      return;
+    }
+
     // AES encrypt user list JSON
     const encryptedData = encrypt(JSON.stringify(users), key);
     

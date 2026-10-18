@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
 import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    requirePermission(req, ['promotions:read', 'promotions:manage']);
+    await requirePermissionAsync(req, ['promotions:read', 'promotions:manage']);
 
     const promotions = await prisma.promotion.findMany({
       include: {
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = requirePermission(req, 'promotions:manage');
+    const session = await requirePermissionAsync(req, 'promotions:manage');
 
     const body = await req.json();
     const {

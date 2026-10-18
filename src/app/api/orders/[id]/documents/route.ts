@@ -6,11 +6,16 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireAuthAsync(req);
-    const orderId = params.id;
+    const contentLength = Number(req.headers.get('content-length') || 0);
+    const maxRequestBytes = 21 * 1024 * 1024;
+    if (contentLength > maxRequestBytes) {
+      return NextResponse.json({ error: 'Размер запроса превышает допустимый лимит.' }, { status: 413 });
+    }
+    const orderId = (await params).id;
 
     if (!orderId) {
       return NextResponse.json({ error: 'ID заказа не указан.' }, { status: 400 });
@@ -26,6 +31,9 @@ export async function POST(
 
     if (!file || typeof file === 'string') {
       return NextResponse.json({ error: 'Файл не прикреплен.' }, { status: 400 });
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Размер файла превышает допустимый лимит.' }, { status: 413 });
     }
 
     const arrayBuffer = await file.arrayBuffer();

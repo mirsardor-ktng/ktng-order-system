@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    requirePermission(req, ['companies:read', 'companies:manage', 'orders:view_all']);
+    await requirePermissionAsync(req, ['companies:read', 'companies:manage', 'orders:view_all']);
 
     const companies = await prisma.company.findMany({
       include: {
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = requirePermission(req, 'companies:manage');
+    const session = await requirePermissionAsync(req, 'companies:manage');
 
     const { name, inn, purchasePlanCases, monthlyTargetCases } = await req.json();
 

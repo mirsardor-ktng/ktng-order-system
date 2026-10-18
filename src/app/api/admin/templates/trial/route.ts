@@ -2,18 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import prisma from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 import { generateExcelOrder } from '@/lib/excel';
 import { downloadFile } from '@/lib/gdrive';
 
 export const dynamic = 'force-dynamic';
 
 async function requireAdmin(req: NextRequest) {
-  const session = getSession(req);
-  if (!session || session.role !== 'ADMIN') {
-    throw new Error('Access denied');
-  }
-  return session;
+  return requirePermissionAsync(req, 'templates:manage');
 }
 
 /**

@@ -3,7 +3,7 @@ import path from 'path';
 import ExcelJS from 'exceljs';
 import { NextRequest } from 'next/server';
 import prisma from '../db';
-import { JWTPayload, hasPermission } from '../auth';
+import { JWTPayload, hasPermission, isSuperAdmin } from '../auth';
 import { AuditService } from '../audit/audit.service';
 import { uploadFile, downloadFile } from '../gdrive';
 import { OrderDocument, OrderDocumentType } from '@prisma/client';
@@ -72,7 +72,7 @@ export class WarehouseAssemblyRequestService {
 
     // Access check for users
     const isOwner = order.customerId === session.userId || (order as any).createdByUserId === session.userId;
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
 
     if (!isSuper && !isOwner) {
       if (!hasPermission(session, 'orders:view_all')) {

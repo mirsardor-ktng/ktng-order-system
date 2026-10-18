@@ -69,10 +69,9 @@ async function verifyJWT(token: string, secret: string): Promise<any | null> {
 
 function hasPermission(payload: any, required: string[]): boolean {
   if (!payload) return false;
-  const isSuperAdmin = payload.roleName ? payload.roleName === 'Суперадминистратор' : payload.role === 'ADMIN';
+  const isSuperAdmin = (payload.roleTemplateIsSystem === true && payload.roleName === 'Суперадминистратор') || (!payload.roleTemplateId && payload.role === 'ADMIN');
   if (isSuperAdmin) return true;
   const perms: string[] = payload.permissions || [];
-  if (perms.includes('*')) return true;
   return required.some(r => perms.includes(r));
 }
 

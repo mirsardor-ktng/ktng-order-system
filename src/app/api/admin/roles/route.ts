@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync, isSuperAdmin } from '@/lib/auth';
+import { ALL_PERMISSIONS } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: NextRequest) {
   try {
-    requirePermission(req, ['roles:manage', 'users:read', 'users:manage']);
+    await requirePermissionAsync(req, ['roles:manage', 'users:read', 'users:manage']);
 
     const roles = await prisma.roleTemplate.findMany({
       include: {
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = requirePermission(req, 'roles:manage');
+    const session = await requirePermissionAsync(req, 'roles:manage');
     const body = await req.json();
     const { name, description, defaultDashboard, permissions } = body;
 
@@ -44,6 +45,12 @@ export async function POST(req: NextRequest) {
 
     if (!Array.isArray(permissions)) {
       return NextResponse.json({ error: 'Список прав (permissions) должен быть массивом.' }, { status: 400 });
+    }
+    if (permissions.some((permission) => typeof permission !== 'string' || permission === '*' || !ALL_PERMISSIONS.includes(permission))) {
+      return NextResponse.json({ error: 'Список содержит недопустимые права.' }, { status: 400 });
+    }
+    if (!isSuperAdmin(session) && permissions.some((permission) => !session.permissions?.includes(permission))) {
+      return NextResponse.json({ error: 'Нельзя назначить права, которыми вы не обладаете.' }, { status: 403 });
     }
 
     const existing = await prisma.roleTemplate.findUnique({

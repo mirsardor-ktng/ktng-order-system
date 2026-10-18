@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermission, requirePermissionAsync, hasPermission, getSession, getEffectivePermissions } from '@/lib/auth';
+import { requirePermissionAsync, requireAuthAsync, hasPermission } from '@/lib/auth';
 import { uploadProductImage, deleteProductImage } from '@/lib/storage';
 import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
 import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
@@ -40,23 +40,11 @@ export async function GET(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   try {
-    let session = getSession(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
-    }
+    const session = await requireAuthAsync(req);
 
     let isFullManager = hasPermission(session, 'products:manage');
     let isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
     let canManageTags = isFullManager || hasPermission(session, 'tags:manage');
-
-    // Live DB permissions fallback in case JWT cookie has not yet been refreshed
-    if (!isFullManager && !isStockOnly && !canManageTags) {
-      const effective = await getEffectivePermissions(session.userId);
-      session = { ...session, permissions: effective.permissions, roleName: effective.roleName, role: effective.role || session.role };
-      isFullManager = hasPermission(session, 'products:manage');
-      isStockOnly = !isFullManager && hasPermission(session, 'products:stock_update');
-      canManageTags = isFullManager || hasPermission(session, 'tags:manage');
-    }
 
     if (!isFullManager && !isStockOnly && !canManageTags) {
       return NextResponse.json({ error: 'У вас недостаточно прав для изменения товаров.' }, { status: 403 });

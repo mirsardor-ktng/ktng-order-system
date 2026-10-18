@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, UserPlus, Key, Mail, Lock, CheckCircle2, ChevronRight, Loader2, Database } from 'lucide-react';
+import { ShieldCheck, UserPlus, Mail, Lock, CheckCircle2, ChevronRight, Loader2, Database } from 'lucide-react';
 import { useTranslation } from '@/i18n/context';
 
 export default function Home() {
@@ -16,7 +16,6 @@ export default function Home() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [encryptionKey, setEncryptionKey] = useState('B2BSecureSystemPassphrase2026');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
@@ -56,7 +55,7 @@ export default function Home() {
     setError('');
     setSubmitting(true);
 
-    if (!name || !email || !password || !encryptionKey) {
+    if (!name || !email || !password) {
       setError('Пожалуйста, заполните все поля.');
       setSubmitting(false);
       return;
@@ -66,7 +65,7 @@ export default function Home() {
       const res = await fetch('/api/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, encryptionKey }),
+        body: JSON.stringify({ name, email, password }),
       });
 
       const data = await res.json();
@@ -198,36 +197,6 @@ export default function Home() {
               </div>
 
               <hr className="border-slate-800" />
-
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold flex items-center gap-2 text-cyan-400">
-                  <Database className="h-5 w-5" /> 2. Шифрование резервных копий
-                </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Поскольку резервные копии пользователей синхронизируются с защищенным облачным хранилищем, мы шифруем файлы по стандарту
-                  <strong> AES-256-CBC</strong>. Укажите секретную фразу-пароль, которая будет использоваться в качестве мастер-ключа.
-                </p>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="encKey" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">AES Мастер-Ключ</label>
-                  <div className="relative">
-                    <Key className="absolute left-3.5 top-3.5 h-4.5 w-4.5 text-slate-400" />
-                    <input
-                      id="encKey"
-                      type="text"
-                      className="w-full rounded-xl pl-11 pr-4 py-3 text-sm glass-input"
-                      placeholder="Мастер-ключ шифрования"
-                      value={encryptionKey}
-                      onChange={(e) => setEncryptionKey(e.target.value)}
-                      disabled={submitting}
-                      required
-                    />
-                  </div>
-                  <span className="text-[10px] text-slate-500">
-                    * Сохраните этот ключ. Восстановление данных из хранилища без него будет невозможно.
-                  </span>
-                </div>
-              </div>
 
               <button
                 type="submit"

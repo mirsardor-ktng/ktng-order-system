@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession, hasPermission } from '@/lib/auth';
+import { requireAuthAsync, hasPermission, isSuperAdmin } from '@/lib/auth';
 import { ProductsService } from '@/lib/products/products.service';
 import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
 
@@ -8,16 +8,14 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const start = performance.now();
   try {
-    const session = getSession(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Необходима авторизация.' }, { status: 401 });
-    }
+    const session = await requireAuthAsync(req);
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search') || '';
     const favoritesOnly = searchParams.get('favorites') === 'true';
 
-    const canSeeRawProducts = session.role === 'ADMIN' || session.role === 'SELLER' ||
+    const canSeeRawProducts = isSuperAdmin(session) ||
+      hasPermission(session, 'products:read') ||
       hasPermission(session, 'products:manage') ||
       hasPermission(session, 'products:stock_update') ||
       hasPermission(session, 'orders:edit');

@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 import { AuditService } from '@/lib/audit/audit.service';
 import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    requirePermission(req, ['promotions:read', 'promotions:manage']);
+    await requirePermissionAsync(req, ['promotions:read', 'promotions:manage']);
 
-    const { id } = params;
+    const { id } = await params;
     const promotion = await prisma.promotion.findUnique({
       where: { id },
       include: {
@@ -30,11 +30,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = requirePermission(req, 'promotions:manage');
+    const session = await requirePermissionAsync(req, 'promotions:manage');
 
-    const { id } = params;
+    const { id } = await params;
     const body = await req.json();
     const {
       name,
@@ -116,11 +116,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = requirePermission(req, 'promotions:manage');
+    const session = await requirePermissionAsync(req, 'promotions:manage');
 
-    const { id } = params;
+    const { id } = await params;
 
     const deletedPromotion = await prisma.$transaction(async (tx) => {
       // 1. Exclusively lock the Promotion row to serialize against concurrent order creation

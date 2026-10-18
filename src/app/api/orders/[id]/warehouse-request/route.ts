@@ -6,11 +6,11 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requirePermissionAsync(req, 'orders:warehouse_request:create');
-    const orderId = params.id;
+    const orderId = (await params).id;
     if (!orderId) {
       return NextResponse.json({ error: 'ID заказа не указан.' }, { status: 400 });
     }

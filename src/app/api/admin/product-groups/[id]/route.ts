@@ -4,7 +4,7 @@ import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 import { ProductGroupService } from '@/lib/product-groups/product-groups.service';
 import { invalidateOrderCalculationConfig } from '@/lib/calculation/config-cache';
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requirePermissionAsync(req, 'product_groups:manage');
   } catch (err: any) {
@@ -22,7 +22,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (isActive !== undefined) updateData.isActive = isActive;
 
   const group = await prisma.productGroup.update({
-    where: { id: params.id },
+    where: { id: (await params).id },
     data: updateData,
     include: {
       skus: { orderBy: { priority: 'asc' }, include: { tags: true } }
@@ -35,7 +35,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json(group);
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requirePermissionAsync(req, 'product_groups:manage');
   } catch (err: any) {
@@ -47,11 +47,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
   // Unlink SKUs from the group before deleting (set groupId = null)
   await prisma.product.updateMany({
-    where: { groupId: params.id },
+    where: { groupId: (await params).id },
     data: { groupId: null }
   });
 
-  await prisma.productGroup.delete({ where: { id: params.id } });
+  await prisma.productGroup.delete({ where: { id: (await params).id } });
 
   invalidateOrderCalculationConfig();
   ProductGroupService.invalidateCatalogCache();

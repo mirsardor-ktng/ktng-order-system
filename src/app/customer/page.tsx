@@ -907,9 +907,9 @@ export default function CustomerCatalog() {
           {filteredProducts.map((prod) => {
             const quantityInPacks = getProductCartPacks(prod, cart);
             const bonusSummary = getCatalogBonusSummary(prod, calculatedOrder?.items ?? []);
-            const isBonusOnly = bonusSummary.isBonusOnly && quantityInPacks === 0;
-            const displayQuantityInPacks = isBonusOnly ? bonusSummary.totalQuantityPacks : quantityInPacks;
-            const uiQuantity = packsToUnit(displayQuantityInPacks, unitMode);
+            // The quantity control represents customer-paid quantity only. Promotion
+            // bonuses are shown separately and must never be copied into the cart.
+            const uiQuantity = packsToUnit(quantityInPacks, unitMode);
             const inCart = quantityInPacks > 0;
             const isOutOfStock = prod.stockPacks <= 0;
             let calcItem = calculatedItemMap.get(prod.id);
@@ -1057,7 +1057,7 @@ export default function CustomerCatalog() {
                   <div className="flex items-center gap-1 bg-slate-950/50 p-1 rounded-xl border border-white/5">
                     <button
                       onClick={() => handleDecrement(prod.id)}
-                      disabled={isOutOfStock || isBonusOnly}
+                      disabled={isOutOfStock || quantityInPacks === 0}
                       className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
                       <Minus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -1069,12 +1069,12 @@ export default function CustomerCatalog() {
                       value={uiQuantity || ''}
                       onChange={(e) => handleInputChange(prod.id, e.target.value)}
                       placeholder="0"
-                      disabled={isOutOfStock || isBonusOnly}
+                      disabled={isOutOfStock}
                     />
 
                     <button
                       onClick={() => handleIncrement(prod.id)}
-                      disabled={isOutOfStock || isBonusOnly}
+                      disabled={isOutOfStock}
                       className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/5 border border-white/5 text-slate-300 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
                       <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -1082,7 +1082,7 @@ export default function CustomerCatalog() {
                   </div>
 
                   {/* Item total price helper (so'm currency) */}
-                  {(inCart || isBonusOnly) && (
+                  {(inCart || bonusSummary.bonusQuantityPacks > 0) && (
                     <div className="space-y-1.5 pt-1">
                       <div className="flex justify-between items-center text-[10px] text-slate-400 px-1 font-semibold">
                         <span>{t('catalog.sum')}:</span>

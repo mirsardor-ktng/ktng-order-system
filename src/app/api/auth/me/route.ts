@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     let roleName = dbUser.roleTemplate?.name || session.roleName || dbUser.role || 'Пользователь';
     let defaultDashboard = dbUser.roleTemplate?.defaultDashboard || session.defaultDashboard || '/customer';
 
-    const isSuperAdmin = dbUser.roleTemplate ? dbUser.roleTemplate.name === 'Суперадминистратор' : dbUser.role === 'ADMIN';
+    const isSuperAdmin = dbUser.roleTemplate ? dbUser.roleTemplate.isSystem && dbUser.roleTemplate.name === 'Суперадминистратор' : dbUser.role === 'ADMIN';
     if (isSuperAdmin) {
       permissions = ALL_PERMISSIONS;
       defaultDashboard = defaultDashboard || '/admin';
@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
       name: dbUser.name,
       role: dbUser.role || undefined,
       roleTemplateId: dbUser.roleTemplateId || undefined,
+      roleTemplateIsSystem: dbUser.roleTemplate?.isSystem || false,
       roleName,
       permissions,
       defaultDashboard,

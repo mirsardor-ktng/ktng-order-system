@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
 import { signToken, getCookieOptions, updateCachedSessionVersion } from '@/lib/auth';
 import { ALL_PERMISSIONS } from '@/lib/permissions';
+import { clearLoginFailures, isLoginRateLimited, recordFailedLogin } from '@/lib/login-rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,15 +12,27 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    const body = await req.json();
+    const { email, password } = body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password || email.length > 254 || password.length > 128) {
       return NextResponse.json({ error: 'Пожалуйста, введите логин и пароль.' }, { status: 400 });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const forwardedFor = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+    const ip = req.headers.get('x-real-ip')?.trim() || forwardedFor || 'unknown';
+    const rateLimit = await isLoginRateLimited(normalizedEmail, ip);
+    if (rateLimit.limited) {
+      return NextResponse.json({ error: 'Слишком много попыток входа. Повторите позже.' }, {
+        status: 429,
+        headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) }
+      });
     }
 
     // 1. Locate user in database with roleTemplate
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
+      where: { email: normalizedEmail },
       include: {
         roleTemplate: true,
         company: { select: { id: true, name: true, code: true } }
@@ -27,18 +40,22 @@ export async function POST(req: NextRequest) {
     });
 
     if (!user) {
+      await recordFailedLogin(normalizedEmail, ip);
       return NextResponse.json({ error: 'Неверный логин или пароль.' }, { status: 401 });
     }
 
     if (!user.isActive) {
-      return NextResponse.json({ error: 'Ваша учетная запись деактивирована администратором.' }, { status: 403 });
+      await recordFailedLogin(normalizedEmail, ip);
+      return NextResponse.json({ error: 'Неверный логин или пароль.' }, { status: 401 });
     }
 
     // 2. Safely verify bcrypt hash
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
+      await recordFailedLogin(normalizedEmail, ip);
       return NextResponse.json({ error: 'Неверный логин или пароль.' }, { status: 401 });
     }
+    await clearLoginFailures(normalizedEmail, ip);
 
     // 3. Extract permissions and dashboard
     let permissions: string[] = user.roleTemplate?.permissions || [];
@@ -46,7 +63,10 @@ export async function POST(req: NextRequest) {
     let defaultDashboard = user.roleTemplate?.defaultDashboard || '/customer';
 
     // Superadmin fallback
-    if (user.role === 'ADMIN' || roleName === 'Суперадминистратор') {
+    const isSuperAdmin = user.roleTemplate
+      ? user.roleTemplate.isSystem && user.roleTemplate.name === 'Суперадминистратор'
+      : user.role === 'ADMIN';
+    if (isSuperAdmin) {
       permissions = ALL_PERMISSIONS;
       defaultDashboard = defaultDashboard || '/admin';
     }
@@ -66,6 +86,7 @@ export async function POST(req: NextRequest) {
       name: user.name,
       role: user.role || undefined,
       roleTemplateId: user.roleTemplateId || undefined,
+      roleTemplateIsSystem: user.roleTemplate?.isSystem || false,
       roleName,
       permissions,
       defaultDashboard,
