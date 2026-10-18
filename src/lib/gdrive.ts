@@ -4,6 +4,12 @@ import { drive, auth } from '@googleapis/drive';
 
 // Define paths for Local File System Mock Fallback
 const LOCAL_MOCK_ROOT = path.join(process.cwd(), 'local-gdrive-mock');
+
+function assertLocalMockAllowed(): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Google Drive is not configured; local mock storage is disabled in production.');
+  }
+}
 const LOCAL_ORDERS = path.join(LOCAL_MOCK_ROOT, 'Orders');
 const LOCAL_TEMPLATES = path.join(LOCAL_MOCK_ROOT, 'Templates');
 const LOCAL_USERS = path.join(LOCAL_MOCK_ROOT, 'Users');
@@ -101,6 +107,7 @@ export async function uploadFile(
 
   // Local File System Mock Fallback
   if (!config.enabled) {
+    assertLocalMockAllowed();
     ensureLocalDirs();
     const targetFolder = path.join(LOCAL_MOCK_ROOT, folderName);
     const filePath = path.join(targetFolder, fileName);
@@ -167,6 +174,7 @@ export async function downloadFile(
 
   // Mock Fallback
   if (!config.enabled || fileId.startsWith('mock-')) {
+    assertLocalMockAllowed();
     ensureLocalDirs();
     const filePath = path.join(LOCAL_MOCK_ROOT, folderName, fileName);
     if (!fs.existsSync(filePath)) {
@@ -194,10 +202,6 @@ export async function downloadFile(
     console.error('[GDrive Error] Failed to download:', error);
     
     // If it is mock or local fallback, check local storage. Otherwise throw error.
-    const filePath = path.join(LOCAL_MOCK_ROOT, folderName, fileName);
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath);
-    }
     throw error;
   }
 }
@@ -208,6 +212,7 @@ export async function downloadFile(
 export async function deleteFile(fileId: string): Promise<boolean> {
   const config = await getGDriveConfig();
   if (!config.enabled || fileId.startsWith('mock-')) {
+    assertLocalMockAllowed();
     return true;
   }
 
@@ -229,6 +234,7 @@ export async function listTemplates(): Promise<Array<{ id: string; name: string 
   const config = await getGDriveConfig();
 
   if (!config.enabled) {
+    assertLocalMockAllowed();
     ensureLocalDirs();
     const files = fs.readdirSync(LOCAL_TEMPLATES);
     return files.map((f, i) => ({ id: `mock-template-id-${i}`, name: f }));
@@ -262,6 +268,7 @@ export async function findFileInFolder(
   const config = await getGDriveConfig();
 
   if (!config.enabled) {
+    assertLocalMockAllowed();
     ensureLocalDirs();
     const filePath = path.join(LOCAL_MOCK_ROOT, folderName, fileName);
     if (fs.existsSync(filePath)) {
@@ -288,10 +295,9 @@ export async function findFileInFolder(
     return null;
   } catch (error: any) {
     console.error(`[GDrive Error] Failed to find file ${fileName} in ${folderName}:`, error);
+    if (process.env.NODE_ENV === 'production') throw error;
     const filePath = path.join(LOCAL_MOCK_ROOT, folderName, fileName);
-    if (fs.existsSync(filePath)) {
-      return { id: `mock-${fileName}`, name: fileName };
-    }
+    if (fs.existsSync(filePath)) return { id: `mock-${fileName}`, name: fileName };
     return null;
   }
 }

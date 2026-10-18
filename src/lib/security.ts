@@ -1,64 +1,56 @@
 import crypto from 'crypto';
 
-const ALGORITHM = 'aes-256-cbc';
-const IV_LENGTH = 16;
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 12;
+const AUTH_TAG_LENGTH = 16;
 
-/**
- * Derives a secure 32-byte key from any raw user passphrase.
- */
-function deriveKey(passphrase: string): Buffer {
-  return crypto.createHash('sha256').update(passphrase).digest();
+/** Derives an AES key from a deployment secret with at least 256 bits of entropy. */
+function deriveKey(secret: string): Buffer {
+  if (typeof secret !== 'string' || Buffer.byteLength(secret, 'utf8') < 32) {
+    throw new Error('Encryption key must contain at least 32 bytes.');
+  }
+  return crypto.createHash('sha256').update(secret, 'utf8').digest();
 }
 
-/**
- * Encrypts a string (e.g. stringified JSON) using AES-256-CBC.
- * Returns the result in the format "ivHex:encryptedHex".
- */
-export function encrypt(text: string, passphrase: string): string {
+/** Authenticated backup format: v2:ivHex:tagHex:ciphertextHex. */
+export function encrypt(text: string, secret: string): string {
   try {
-    const key = deriveKey(passphrase);
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-    
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    
-    // Combine iv and encrypted content
-    return `${iv.toString('hex')}:${encrypted}`;
-  } catch (error: any) {
-    throw new Error(`Encryption failed: ${error.message}`);
+    const cipher = crypto.createCipheriv(ALGORITHM, deriveKey(secret), iv);
+    const ciphertext = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `v2:${iv.toString('hex')}:${tag.toString('hex')}:${ciphertext.toString('hex')}`;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown encryption error';
+    throw new Error(`Encryption failed: ${message}`);
   }
 }
 
-/**
- * Decrypts a formatted "ivHex:encryptedHex" string back to raw text.
- */
-export function decrypt(encryptedText: string, passphrase: string): string {
+/** Legacy unauthenticated CBC backups are rejected and require offline migration. */
+export function decrypt(encryptedText: string, secret: string): string {
   try {
     const parts = encryptedText.split(':');
-    if (parts.length !== 2) {
-      throw new Error('Invalid encrypted format. Expected "iv:ciphertext"');
+    if (parts.length !== 4 || parts[0] !== 'v2') {
+      throw new Error('Unsupported encrypted backup format.');
     }
-    
-    const iv = Buffer.from(parts[0], 'hex');
-    const ciphertext = Buffer.from(parts[1], 'hex');
-    const key = deriveKey(passphrase);
-    
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    let decrypted = decipher.update(ciphertext);
-    // Node.js typings note that decipher.final() returns Buffer or string depending on update encoding,
-    // so we can concatenate Buffer elements and call toString('utf8')
-    const finalBuffer = decipher.final();
-    
-    return Buffer.concat([decrypted, finalBuffer]).toString('utf8');
-  } catch (error: any) {
-    throw new Error(`Decryption failed: Check key validity. (${error.message})`);
+
+    const iv = Buffer.from(parts[1], 'hex');
+    const tag = Buffer.from(parts[2], 'hex');
+    const ciphertext = Buffer.from(parts[3], 'hex');
+    if (iv.length !== IV_LENGTH || tag.length !== AUTH_TAG_LENGTH || ciphertext.length === 0) {
+      throw new Error('Invalid encrypted backup format.');
+    }
+
+    const decipher = crypto.createDecipheriv(ALGORITHM, deriveKey(secret), iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown decryption error';
+    throw new Error(`Decryption failed: ${message}`);
   }
 }
 
-/**
- * Generates a random secure token (e.g., for JWT secret or API keys)
- */
+/** Generates a cryptographically secure token. */
 export function generateSecureToken(length: number = 32): string {
   return crypto.randomBytes(length).toString('hex');
 }

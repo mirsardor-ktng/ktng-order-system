@@ -13,6 +13,7 @@ export interface JWTPayload {
   name: string;
   role?: string; // Legacy fallback
   roleTemplateId?: string;
+  roleTemplateIsSystem?: boolean;
   roleName?: string;
   permissions?: string[];
   defaultDashboard?: string;
@@ -58,14 +59,9 @@ import { ALL_PERMISSIONS } from './permissions';
 export function hasPermission(payload: JWTPayload | null, required: string | string[]): boolean {
   if (!payload) return false;
 
-  // Superadmin bypass: only Суперадминистратор or legacy ADMIN without custom template
-  const isSuperAdmin = payload.roleName ? payload.roleName === 'Суперадминистратор' : payload.role === 'ADMIN';
-  if (isSuperAdmin) {
-    return true;
-  }
+  if (isSuperAdmin(payload)) return true;
 
   const userPerms = payload.permissions || [];
-  if (userPerms.includes('*')) return true;
 
   if (Array.isArray(required)) {
     return required.some(p => userPerms.includes(p));
@@ -73,10 +69,16 @@ export function hasPermission(payload: JWTPayload | null, required: string | str
   return userPerms.includes(required);
 }
 
+/** Global access is reserved for the named system role or a legacy admin without a template. */
+export function isSuperAdmin(payload: JWTPayload | null): boolean {
+  if (!payload) return false;
+  return (payload.roleTemplateIsSystem === true && payload.roleName === 'Суперадминистратор') || (!payload.roleTemplateId && payload.role === 'ADMIN');
+}
+
 /**
  * Resolves live effective permissions for a user from database.
  */
-export async function getEffectivePermissions(userId: string): Promise<{ permissions: string[]; roleName: string; role?: string; defaultDashboard?: string }> {
+export async function getEffectivePermissions(userId: string): Promise<{ permissions: string[]; roleName: string; role?: string; roleTemplateId?: string; roleTemplateIsSystem?: boolean; companyId?: string; defaultDashboard?: string }> {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -88,13 +90,16 @@ export async function getEffectivePermissions(userId: string): Promise<{ permiss
     }
 
     const template = user.roleTemplate;
-    const isSuperAdmin = template ? template.name === 'Суперадминистратор' : user.role === 'ADMIN';
+    const isSuperAdmin = template ? template.isSystem && template.name === 'Суперадминистратор' : user.role === 'ADMIN';
 
     if (isSuperAdmin) {
       return {
         permissions: ALL_PERMISSIONS,
         roleName: 'Суперадминистратор',
         role: 'ADMIN',
+        roleTemplateId: template?.id,
+        roleTemplateIsSystem: template?.isSystem,
+        companyId: user.companyId || undefined,
         defaultDashboard: template?.defaultDashboard || '/admin'
       };
     }
@@ -104,11 +109,14 @@ export async function getEffectivePermissions(userId: string): Promise<{ permiss
       permissions: template?.permissions || [],
       roleName,
       role: user.role || 'CUSTOMER',
+      roleTemplateId: template?.id,
+      roleTemplateIsSystem: template?.isSystem,
+      companyId: user.companyId || undefined,
       defaultDashboard: template?.defaultDashboard || (user.role === 'SELLER' ? '/seller' : '/customer')
     };
   } catch (err) {
     console.error('Failed to get effective permissions:', err);
-    return { permissions: [], roleName: 'Пользователь' };
+    throw new Error('Не удалось проверить права пользователя.');
   }
 }
 
@@ -162,7 +170,19 @@ export async function getSessionAsync(req: NextRequest): Promise<JWTPayload | nu
   if (!session) return null;
   const isValid = await validateSessionVersion(session);
   if (!isValid) return null;
-  return session;
+  // Refresh tenant and permission claims from the database on every protected request.
+  // This prevents old JWTs from retaining access after an account or role change.
+  const effective = await getEffectivePermissions(session.userId);
+  return {
+    ...session,
+    permissions: effective.permissions,
+    roleName: effective.roleName,
+    role: effective.role || session.role,
+    roleTemplateId: effective.roleTemplateId,
+    roleTemplateIsSystem: effective.roleTemplateIsSystem,
+    companyId: effective.companyId,
+    defaultDashboard: effective.defaultDashboard || session.defaultDashboard
+  };
 }
 
 /**
@@ -213,25 +233,10 @@ export function requirePermission(req: NextRequest, required: string | string[])
  */
 export async function requirePermissionAsync(req: NextRequest, required: string | string[]): Promise<JWTPayload> {
   const session = await requireAuthAsync(req);
-
-  if (hasPermission(session, required)) {
-    return session;
-  }
-
-  // Check live DB effective permissions
-  const effective = await getEffectivePermissions(session.userId);
-  const updatedSession: JWTPayload = {
-    ...session,
-    permissions: effective.permissions,
-    roleName: effective.roleName,
-    role: effective.role || session.role
-  };
-
-  if (!hasPermission(updatedSession, required)) {
+  if (!hasPermission(session, required)) {
     throw new Error('У вас недостаточно прав для выполнения этого действия.');
   }
-
-  return updatedSession;
+  return session;
 }
 
 /**

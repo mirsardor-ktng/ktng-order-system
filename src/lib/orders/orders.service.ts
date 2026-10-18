@@ -11,13 +11,35 @@ import { AuditService } from '../audit/audit.service';
 import { PromotionsService } from '../promotions/promotions.service';
 import { ProductGroupService, SkuAllocation } from '../product-groups/product-groups.service';
 
-import { JWTPayload, hasPermission } from '../auth';
+import { JWTPayload, hasPermission, isSuperAdmin } from '../auth';
 import { getTashkentStartOfDay, getTashkentStartOfNextDay } from '../date-utils';
 
 export interface AppliedPromotionDeduction {
   promotionId: string;
   amount: number;
   [key: string]: any;
+}
+
+function validateOrderItems(items: any[]): void {
+  if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
+    const err: any = new Error('Заказ должен содержать от 1 до 100 позиций.');
+    err.status = 400;
+    throw err;
+  }
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      const err: any = new Error('Некорректная позиция заказа.');
+      err.status = 400;
+      throw err;
+    }
+    const rawQuantity = item.baseQuantityPacks ?? item.quantityPacks ?? item.packs;
+    const quantity = Number(rawQuantity);
+    if (!Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 100_000) {
+      const err: any = new Error('Количество должно быть целым числом от 1 до 100000.');
+      err.status = 400;
+      throw err;
+    }
+  }
 }
 
 export type OrderPromotionResolutionSource =
@@ -292,11 +314,7 @@ export class OrdersService {
   ): Promise<OrderPromotionResolution> {
     // 1. Explicit admin override if provided
     if (options?.adminResolvedDeductions) {
-      const isSuper = options?.session && (
-        options.session.role === 'ADMIN' ||
-        options.session.roleName === 'Суперадминистратор' ||
-        options.session.permissions?.includes('*')
-      );
+      const isSuper = options?.session ? isSuperAdmin(options.session) : false;
       if (!isSuper) {
         const err: any = new Error('Только администраторы могут выполнять ручную сверку промо-бюджетов legacy-заказов.');
         err.status = 403;
@@ -534,7 +552,7 @@ export class OrdersService {
     session: JWTPayload,
     order: { customerId: string; createdByUserId?: string | null; companyId?: string | null; status: string }
   ): boolean {
-    if (session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*')) {
+    if (isSuperAdmin(session)) {
       return true;
     }
 
@@ -580,9 +598,7 @@ export class OrdersService {
     const canViewAll = hasPermission(session, 'orders:view_all');
     const canViewValidation =
       hasPermission(session, 'orders:validation:view') ||
-      session.role === 'ADMIN' ||
-      session.roleName === 'Суперадминистратор' ||
-      session.permissions?.includes('*');
+      isSuperAdmin(session);
 
     if (!canViewAll) {
       // Customer: can view their company's orders or own orders in any status
@@ -746,6 +762,7 @@ export class OrdersService {
   static async createOrder(session: JWTPayload, data: { items: any[]; status: string }, req?: NextRequest) {
     const totalStart = performance.now();
     const { items, status } = data;
+    validateOrderItems(items);
     const orderStatus = status === 'DRAFT' ? 'DRAFT' : 'NEW';
 
     // Constrain product and group queries to only items in this order
@@ -1213,9 +1230,10 @@ export class OrdersService {
   ) {
     const totalStart = performance.now();
     const { orderId, items, status, adminResolvedDeductions, reconciliationReason } = data;
+    validateOrderItems(items);
     const orderStatus = status === 'NEW' ? 'NEW' : 'DRAFT';
 
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
     if (adminResolvedDeductions && !isSuper) {
       const err: any = new Error('Только администраторы могут выполнять ручную сверку промо-бюджетов legacy-заказов.');
       err.status = 403;
@@ -1333,7 +1351,14 @@ export class OrdersService {
     const productMap = new Map(dbProducts.map(p => [p.id, p]));
 
     const rawItems: any[] = [];
-    const isManualPricing = items.some(i => i.price !== undefined);
+    const hasSubmittedPrices = items.some((item) => item && item.price !== undefined);
+    const canSetManualPrices = hasPermission(session, 'orders:edit') && hasPermission(session, 'orders:view_all');
+    if (hasSubmittedPrices && !canSetManualPrices) {
+      const err: any = new Error('Недостаточно прав для изменения цен заказа.');
+      err.status = 403;
+      throw err;
+    }
+    const isManualPricing = hasSubmittedPrices && canSetManualPrices;
 
     for (const item of items) {
       const rawPacks = parseInt(item.baseQuantityPacks || item.quantityPacks || item.packs) || 0;
@@ -1347,7 +1372,8 @@ export class OrdersService {
       const directProduct = item.productId ? productMap.get(item.productId) : undefined;
       if (directProduct) {
         const parentGroup = directProduct.groupId ? groupMap.get(directProduct.groupId) : undefined;
-        const explicitPrice = item.price !== undefined ? Math.max(0, parseFloat(item.price)) : directProduct.basePrice;
+        const explicitPrice = isManualPricing && item.price !== undefined ? Number(item.price) : directProduct.basePrice;
+        if (!Number.isFinite(explicitPrice) || explicitPrice < 0 || explicitPrice > 1_000_000_000) throw new Error('Некорректная цена товара.');
         rawItems.push({
           productId: directProduct.id,
           sku: directProduct.sku,
@@ -1368,7 +1394,8 @@ export class OrdersService {
       const group = groupMap.get(requestedId) || (item.groupId ? groupMap.get(item.groupId) : undefined);
       if (group && group.skus.length > 0) {
         const primarySku = group.skus[0];
-        const explicitPrice = item.price !== undefined ? Math.max(0, parseFloat(item.price)) : primarySku.basePrice;
+        const explicitPrice = isManualPricing && item.price !== undefined ? Number(item.price) : primarySku.basePrice;
+        if (!Number.isFinite(explicitPrice) || explicitPrice < 0 || explicitPrice > 1_000_000_000) throw new Error('Некорректная цена товара.');
         rawItems.push({
           productId: primarySku.id,
           sku: primarySku.sku,
@@ -1389,7 +1416,8 @@ export class OrdersService {
       const product = productMap.get(requestedId);
       if (product) {
         const parentGroup = product.groupId ? groupMap.get(product.groupId) : undefined;
-        const explicitPrice = item.price !== undefined ? Math.max(0, parseFloat(item.price)) : product.basePrice;
+        const explicitPrice = isManualPricing && item.price !== undefined ? Number(item.price) : product.basePrice;
+        if (!Number.isFinite(explicitPrice) || explicitPrice < 0 || explicitPrice > 1_000_000_000) throw new Error('Некорректная цена товара.');
         rawItems.push({
           productId: product.id,
           sku: product.sku,
@@ -1919,7 +1947,7 @@ export class OrdersService {
       throw err;
     }
 
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
     if (adminResolvedDeductions && !isSuper) {
       const err: any = new Error('Только администраторы могут выполнять ручную сверку промо-бюджетов legacy-заказов.');
       err.status = 403;
@@ -2283,7 +2311,7 @@ export class OrdersService {
       throw new Error('Удалить можно только черновик заказа.');
     }
 
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
     const isOwner = order.customerId === session.userId || (order as any).createdByUserId === session.userId;
     const hasDeletePermission = hasPermission(session, 'orders:delete_draft') || hasPermission(session, 'orders:delete');
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requireAuthAsync, hasPermission, SessionExpiredError } from '@/lib/auth';
+import { requireAuthAsync, hasPermission, isSuperAdmin, SessionExpiredError } from '@/lib/auth';
 import { downloadFile } from '@/lib/gdrive';
 import { OrdersService } from '@/lib/orders/orders.service';
 
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
     // 3. Verify permissions (RBAC & Visibility)
     const isOwner = order.customerId === session.userId || order.createdByUserId === session.userId;
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
 
     if (!isSuper && !isOwner) {
       // CUSTOMER can only download orders belonging to their company

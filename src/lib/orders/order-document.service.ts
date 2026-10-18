@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import path from 'path';
 import prisma from '@/lib/db';
-import { JWTPayload, hasPermission } from '@/lib/auth';
+import { JWTPayload, hasPermission, isSuperAdmin } from '@/lib/auth';
 import { uploadFile, downloadFile } from '@/lib/gdrive';
 import { AuditService } from '@/lib/audit/audit.service';
 import { OrderDocument, OrderDocumentType } from '@prisma/client';
@@ -145,7 +145,7 @@ export class OrderDocumentService {
     }
 
     const isOwner = order.customerId === session.userId || order.createdByUserId === session.userId;
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
 
     if (!isSuper && !isOwner) {
       if (!hasPermission(session, 'orders:view_all')) {
@@ -333,7 +333,7 @@ export class OrderDocumentService {
 
     // Access check for order ownership and validation status
     const isOwner = document.order.customerId === session.userId || (document.order as any).createdByUserId === session.userId;
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
 
     if (!isSuper && !isOwner) {
       if (!hasPermission(session, 'orders:view_all')) {
@@ -436,7 +436,7 @@ export class OrderDocumentService {
 
     // Access check for order ownership and validation status
     const isOwner = document.order.customerId === session.userId || (document.order as any).createdByUserId === session.userId;
-    const isSuper = session.role === 'ADMIN' || session.roleName === 'Суперадминистратор' || session.permissions?.includes('*');
+    const isSuper = isSuperAdmin(session);
 
     if (!isSuper && !isOwner) {
       if (!hasPermission(session, 'orders:view_all')) {

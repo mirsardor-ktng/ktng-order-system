@@ -10,116 +10,112 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * GET: Checks if the setup wizard is required (i.e. whether any Admin exists).
- */
 export async function GET() {
   try {
     const userCount = await prisma.user.count();
-    return NextResponse.json({
-      setupRequired: userCount === 0
-    });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ setupRequired: userCount === 0 });
+  } catch {
+    return NextResponse.json({ error: 'Не удалось проверить состояние настройки.' }, { status: 500 });
   }
 }
 
-/**
- * POST: Runs the setup wizard, creating default role templates and the first Superadmin.
- */
+/** Creates the initial administrator exactly once. The unique setup marker is
+ * created in the same transaction as the user, so concurrent requests race
+ * on the database constraint rather than on a count-then-create check. */
 export async function POST(req: NextRequest) {
   try {
-    const userCount = await prisma.user.count();
-    if (userCount > 0) {
-      return NextResponse.json({ error: 'Инициализация уже была выполнена ранее.' }, { status: 400 });
-    }
-
     const body = await req.json();
-    const { name, email, password, encryptionKey } = body;
-
-    if (!name || !email || !password) {
-      return NextResponse.json({ error: 'Не все поля заполнены.' }, { status: 400 });
+    const { name, email, password } = body;
+    if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !email.trim() ||
+        typeof password !== 'string' || password.length < 12 || password.length > 128) {
+      return NextResponse.json({ error: 'Укажите имя, email и пароль длиной от 12 до 128 символов.' }, { status: 400 });
     }
 
-    // 1. Seed all default role templates if not yet in database
-    for (const tpl of DEFAULT_ROLE_TEMPLATES) {
-      await prisma.roleTemplate.upsert({
-        where: { name: tpl.name },
-        update: {
-          description: tpl.description,
-          isSystem: tpl.isSystem,
-          defaultDashboard: tpl.defaultDashboard,
-          permissions: tpl.permissions
+    const normalizedEmail = email.toLowerCase().trim();
+    const passwordHash = await bcrypt.hash(password, 12);
+    const setupResult = await prisma.$transaction(async (tx) => {
+      if (await tx.user.count() > 0) throw new Error('SETUP_ALREADY_COMPLETED');
+
+      // Unique key makes this claim atomic across concurrent server instances.
+      await tx.systemSetting.create({ data: { key: 'INITIAL_SETUP_COMPLETED', value: 'true' } });
+
+      for (const tpl of DEFAULT_ROLE_TEMPLATES) {
+        await tx.roleTemplate.upsert({
+          where: { name: tpl.name },
+          update: {
+            description: tpl.description,
+            isSystem: tpl.isSystem,
+            defaultDashboard: tpl.defaultDashboard,
+            permissions: tpl.permissions
+          },
+          create: {
+            name: tpl.name,
+            description: tpl.description,
+            isSystem: tpl.isSystem,
+            defaultDashboard: tpl.defaultDashboard,
+            permissions: tpl.permissions
+          }
+        });
+      }
+
+      const superAdminRole = await tx.roleTemplate.findUnique({ where: { name: 'Суперадминистратор' } });
+      if (!superAdminRole) throw new Error('SUPERADMIN_ROLE_MISSING');
+
+      const admin = await tx.user.create({
+        data: {
+          name: name.trim(),
+          email: normalizedEmail,
+          passwordHash,
+          role: 'ADMIN',
+          roleTemplateId: superAdminRole.id
         },
-        create: {
-          name: tpl.name,
-          description: tpl.description,
-          isSystem: tpl.isSystem,
-          defaultDashboard: tpl.defaultDashboard,
-          permissions: tpl.permissions
+        select: { id: true, email: true, name: true, roleTemplateId: true, sessionVersion: true }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: 'SETUP_COMPLETED',
+          details: `Первый запуск завершен. Создан суперадминистратор: ${normalizedEmail}`
         }
       });
-    }
+      return { admin, superAdminRole };
+    }, { isolationLevel: 'Serializable' });
 
-    const superAdminRole = await prisma.roleTemplate.findUnique({
-      where: { name: 'Суперадминистратор' }
-    });
-
-    // 2. Hash admin password strictly with bcrypt
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // 3. Create administrator in DB
-    const admin = await prisma.user.create({
-      data: {
-        name: name.trim(),
-        email: email.toLowerCase().trim(),
-        passwordHash,
-        role: 'ADMIN',
-        roleTemplateId: superAdminRole?.id || null
-      },
-      include: {
-        roleTemplate: true
-      }
-    });
-
-    // 4. Save custom AES Backup Encryption key if provided
-    if (encryptionKey) {
-      await prisma.systemSetting.upsert({
-        where: { key: 'BACKUP_ENCRYPTION_KEY' },
-        update: { value: encryptionKey },
-        create: { key: 'BACKUP_ENCRYPTION_KEY', value: encryptionKey }
-      });
-    }
-
-    // 5. Establish template on disk
+    // External side effects happen after the atomic database setup.
     const templatePath = path.join(process.cwd(), 'templates', 'default_order_template.xlsx');
-    await createDefaultExcelTemplateOnDisk(templatePath);
+    try {
+      await createDefaultExcelTemplateOnDisk(templatePath);
+    } catch (error) {
+      console.error('[Setup] Default template creation failed after setup commit.', error);
+    }
 
-    // 6. Generate secure audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: admin.id,
-        action: 'SETUP_COMPLETED',
-        details: `Первый запуск завершен. Создан суперадминистратор: ${email}`
+    const backupKey = process.env.BACKUP_ENCRYPTION_KEY;
+    if (backupKey && backupKey.length >= 32) {
+      const users = await prisma.user.findMany({
+        select: { id: true, email: true, name: true, passwordHash: true, role: true, createdAt: true }
+      });
+      try {
+        await uploadFile('users.enc.json', encrypt(JSON.stringify(users), backupKey), 'application/json', 'Users');
+      } catch (error) {
+        console.error('[Setup] Initial user backup failed after setup commit.', error);
       }
-    });
+    } else {
+      console.warn('[Setup] Initial user backup skipped: BACKUP_ENCRYPTION_KEY is not configured.');
+    }
 
-    // 7. Perform encrypted users backup sync
-    const allUsers = await prisma.user.findMany({ select: { id: true, email: true, name: true, role: true, createdAt: true } });
-    const backupKey = encryptionKey || 'B2BSecureSystemPassphrase2026';
-    const encryptedUsers = encrypt(JSON.stringify(allUsers), backupKey);
-    await uploadFile('users.enc.json', encryptedUsers, 'application/json', 'Users');
-
-    // 8. Sign JWT and cook session cookie
+    const { admin, superAdminRole } = setupResult;
     const token = signToken({
       userId: admin.id,
       email: admin.email,
       name: admin.name,
       role: 'ADMIN',
-      roleTemplateId: superAdminRole?.id || undefined,
+      roleTemplateId: superAdminRole.id,
+      roleTemplateIsSystem: true,
       roleName: 'Суперадминистратор',
       permissions: ALL_PERMISSIONS,
-      defaultDashboard: '/admin'
+      defaultDashboard: '/admin',
+      sessionVersion: admin.sessionVersion
     });
 
     const response = NextResponse.json({
@@ -129,19 +125,20 @@ export async function POST(req: NextRequest) {
         email: admin.email,
         name: admin.name,
         role: 'ADMIN',
-        roleTemplateId: superAdminRole?.id,
+        roleTemplateId: superAdminRole.id,
         roleName: 'Суперадминистратор',
         permissions: ALL_PERMISSIONS,
         defaultDashboard: '/admin'
       }
     });
-
-    const cookieOptions = getCookieOptions(7); // Keep setup session for 7 days
+    const cookieOptions = getCookieOptions(1);
     response.cookies.set(cookieOptions.name, token, cookieOptions);
-
     return response;
   } catch (error: any) {
+    if (error.message === 'SETUP_ALREADY_COMPLETED' || error.code === 'P2002' || error.code === 'P2034') {
+      return NextResponse.json({ error: 'Инициализация уже была выполнена ранее.' }, { status: 400 });
+    }
     console.error('[Setup Error]', error);
-    return NextResponse.json({ error: `Ошибка мастера настройки: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ error: 'Ошибка мастера настройки.' }, { status: 500 });
   }
 }

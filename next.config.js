@@ -4,12 +4,7 @@ const nextConfig = {
   images: {
     unoptimized: true
   },
-  eslint: {
-    ignoreDuringBuilds: true
-  },
-  typescript: {
-    ignoreBuildErrors: true
-  }
+  // Keep lint and TypeScript errors blocking for production builds.
 };
 
 module.exports = nextConfig;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync, isSuperAdmin } from '@/lib/auth';
+import { ALL_PERMISSIONS } from '@/lib/permissions';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +14,7 @@ interface RouteContext {
  */
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    requirePermission(req, ['roles:manage', 'users:read', 'users:manage']);
+    await requirePermissionAsync(req, ['roles:manage', 'users:read', 'users:manage']);
     const { id } = await context.params;
 
     const role = await prisma.roleTemplate.findUnique({
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
  */
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    const session = requirePermission(req, 'roles:manage');
+    const session = await requirePermissionAsync(req, 'roles:manage');
     const { id } = await context.params;
     const body = await req.json();
     const { name, description, defaultDashboard, permissions } = body;
@@ -49,6 +50,9 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     if (!existingRole) {
       return NextResponse.json({ error: 'Шаблон роли не найден.' }, { status: 404 });
+    }
+    if (existingRole.isSystem && !isSuperAdmin(session)) {
+      return NextResponse.json({ error: 'Недостаточно прав для изменения системной роли.' }, { status: 403 });
     }
 
     const updateData: any = {};
@@ -74,6 +78,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     if (Array.isArray(permissions)) {
+      if (permissions.some((permission) => typeof permission !== 'string' || permission === '*' || !ALL_PERMISSIONS.includes(permission))) {
+        return NextResponse.json({ error: 'Список содержит недопустимые права.' }, { status: 400 });
+      }
+      if (!isSuperAdmin(session) && permissions.some((permission) => !session.permissions?.includes(permission))) {
+        return NextResponse.json({ error: 'Нельзя назначить права, которыми вы не обладаете.' }, { status: 403 });
+      }
       updateData.permissions = permissions;
     }
 
@@ -84,6 +94,13 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         _count: { select: { users: true } }
       }
     });
+
+    if (permissions !== undefined || name !== undefined) {
+      await prisma.user.updateMany({
+        where: { roleTemplateId: id },
+        data: { sessionVersion: { increment: 1 } }
+      });
+    }
 
     await prisma.auditLog.create({
       data: {
@@ -104,7 +121,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
  */
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const session = requirePermission(req, 'roles:manage');
+    const session = await requirePermissionAsync(req, 'roles:manage');
     const { id } = await context.params;
 
     const existingRole = await prisma.roleTemplate.findUnique({

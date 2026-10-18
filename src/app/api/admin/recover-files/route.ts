@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 import { recoverLegacyFileLinks } from '@/lib/migration';
 import { AuditService } from '@/lib/audit/audit.service';
 
@@ -7,10 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const session = getSession(req);
-    if (!session || session.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Доступ разрешен только администраторам.' }, { status: 403 });
-    }
+    const session = await requirePermissionAsync(req, 'settings:manage');
 
     const report = await recoverLegacyFileLinks();
 

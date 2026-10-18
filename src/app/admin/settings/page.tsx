@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Settings, Database, Save, Upload, Download, Check, 
-  AlertCircle, Loader2, Key, Mail, FolderOpen, ShieldCheck, 
+  AlertCircle, Loader2, Mail, FolderOpen,
   ShieldAlert, RefreshCcw, Landmark 
 } from 'lucide-react';
 
@@ -16,8 +16,8 @@ interface Metrics {
 export default function AdminSettings() {
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [backupEncryptionConfigured, setBackupEncryptionConfigured] = useState(false);
   const [folderId, setFolderId] = useState('');
-  const [encryptionKey, setEncryptionKey] = useState('');
   const [metrics, setMetrics] = useState<Metrics | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -39,8 +39,8 @@ export default function AdminSettings() {
         const data = await res.json();
         setSyncEnabled(data.syncEnabled);
         setIsAuthorized(data.isAuthorized);
+        setBackupEncryptionConfigured(data.backupEncryptionConfigured === true);
         setFolderId(data.folderId);
-        setEncryptionKey(data.encryptionKey);
         setMetrics(data.metrics);
       }
     } catch (err) {
@@ -80,7 +80,6 @@ export default function AdminSettings() {
           action: 'save_settings',
           syncEnabled,
           folderId,
-          encryptionKey
         })
       });
 
@@ -177,8 +176,13 @@ export default function AdminSettings() {
           <span>Интеграция с Google Drive & Безопасность архивов</span>
         </h2>
         <span className="block text-xs text-slate-400 mt-1 font-semibold">
-          Настройка доступов к облачному хранилищу, параметров шифрования AES-256 и ручного восстановления
+          Настройка Google Drive и ручное управление резервными копиями. Ключ шифрования задаётся в переменных окружения сервера.
         </span>
+      </div>
+
+      <div className={`rounded-xl border p-4 text-xs sm:text-sm flex items-center gap-3 ${backupEncryptionConfigured ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : 'border-amber-500/25 bg-amber-500/10 text-amber-300'}`}>
+        <ShieldAlert className="h-5 w-5 flex-shrink-0" />
+        <span>{backupEncryptionConfigured ? 'Ключ шифрования резервных копий настроен на сервере.' : 'Не задан BACKUP_ENCRYPTION_KEY; резервное копирование и восстановление недоступны.'}</span>
       </div>
 
       {/* Notifications */}
@@ -272,33 +276,6 @@ export default function AdminSettings() {
               </div>
 
               <hr className="border-white/5" />
-
-              {/* AES Passphrase */}
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <Key className="h-4 w-4 text-cyan-400" />
-                    <span>Настройка шифрования AES-256</span>
-                  </h4>
-                  <span className="block text-[10px] text-slate-500 font-semibold leading-normal mt-0.5">
-                    Ключ шифрования используется для закрытия данных пользователей перед отправкой в облако Google Drive.
-                  </span>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">AES Мастер-Пароль</label>
-                  <div className="relative">
-                    <ShieldCheck className="absolute left-3 top-3 h-4.5 w-4.5 text-slate-400" />
-                    <input
-                      type="text"
-                      className="w-full rounded-xl pl-10 pr-4 py-2.5 text-xs glass-input font-bold"
-                      value={encryptionKey}
-                      onChange={(e) => setEncryptionKey(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
 
               {/* Submit button */}
               <button

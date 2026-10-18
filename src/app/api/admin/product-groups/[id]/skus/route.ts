@@ -7,7 +7,7 @@ import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
  * Body: { productId: string; priority?: number }
  * Assigns a product (SKU) to this group.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requirePermissionAsync(req, 'product_groups:manage');
   } catch (err: any) {
@@ -25,12 +25,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // Ensure group exists
-  const group = await prisma.productGroup.findUnique({ where: { id: params.id } });
+  const group = await prisma.productGroup.findUnique({ where: { id: (await params).id } });
   if (!group) return NextResponse.json({ error: 'Группа не найдена' }, { status: 404 });
 
   const updated = await prisma.product.update({
     where: { id: productId },
-    data: { groupId: params.id, priority: parseInt(String(priority)) || 0 },
+    data: { groupId: (await params).id, priority: parseInt(String(priority)) || 0 },
     include: { tags: true, group: { select: { id: true, displayName: true } } }
   });
 
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
  * Body: { productId: string; priority: number }
  * Updates priority of a SKU within this group.
  */
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requirePermissionAsync(req, 'product_groups:manage');
   } catch (err: any) {
@@ -73,7 +73,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
  * Body: { productId: string }
  * Removes a SKU from this group (sets groupId = null).
  */
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requirePermissionAsync(req, 'product_groups:manage');
   } catch (err: any) {

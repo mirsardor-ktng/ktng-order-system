@@ -6,11 +6,11 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: Promise<{ documentId: string }> }
 ) {
   try {
     const session = await requireAuthAsync(req);
-    const documentId = params.documentId;
+    const documentId = (await params).documentId;
 
     if (!documentId) {
       return NextResponse.json({ error: 'ID документа не указан.' }, { status: 400 });

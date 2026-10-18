@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
 import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 import { uploadFile, downloadFile, findFileInFolder } from '@/lib/gdrive';
@@ -10,14 +9,13 @@ import { encrypt, decrypt } from '@/lib/security';
  */
 export async function GET(req: NextRequest) {
   try {
-    await requirePermissionAsync(req, ['settings:manage', 'products:manage', 'users:read', 'orders:view_all']);
+    await requirePermissionAsync(req, 'settings:manage');
     
     // Fetch relevant settings
     const settings = await prisma.systemSetting.findMany({});
     const syncEnabled = settings.find(s => s.key === 'GDRIVE_SYNC_ENABLED')?.value === 'true';
     const isAuthorized = !!settings.find(s => s.key === 'GDRIVE_REFRESH_TOKEN')?.value;
     const folderId = settings.find(s => s.key === 'GDRIVE_FOLDER_ID')?.value || '';
-    const encryptionKey = settings.find(s => s.key === 'BACKUP_ENCRYPTION_KEY')?.value || 'B2BSecureSystemPassphrase2026';
 
     const userCount = await prisma.user.count();
     const orderCount = await prisma.order.count();
@@ -27,7 +25,7 @@ export async function GET(req: NextRequest) {
       syncEnabled,
       isAuthorized,
       folderId,
-      encryptionKey,
+      backupEncryptionConfigured: Boolean(process.env.BACKUP_ENCRYPTION_KEY),
       metrics: {
         totalUsers: userCount,
         totalOrders: orderCount,
@@ -49,14 +47,13 @@ export async function POST(req: NextRequest) {
   try {
     const adminSession = await requirePermissionAsync(req, 'settings:manage');
     const body = await req.json();
-    const { action, syncEnabled, folderId, encryptionKey } = body;
+    const { action, syncEnabled, folderId } = body;
 
     // 1. UPDATE SETTINGS
     if (action === 'save_settings') {
       const updates = [
         { key: 'GDRIVE_SYNC_ENABLED', value: syncEnabled ? 'true' : 'false' },
         { key: 'GDRIVE_FOLDER_ID', value: folderId || '' },
-        { key: 'BACKUP_ENCRYPTION_KEY', value: encryptionKey || 'B2BSecureSystemPassphrase2026' }
       ];
 
       for (const item of updates) {
@@ -66,6 +63,8 @@ export async function POST(req: NextRequest) {
           create: { key: item.key, value: item.value }
         });
       }
+      // Keep the legacy key until older backups have been migrated and restore-tested.
+      // It is never returned by this API or used for new backups.
 
       // Sync Node process env with DB settings
       process.env.GDRIVE_SYNC_ENABLED = syncEnabled ? 'true' : 'false';
@@ -84,9 +83,11 @@ export async function POST(req: NextRequest) {
 
     // 2. TRIGGER MANUAL ENCRYPTED USER DATABASE BACKUP
     if (action === 'backup_users') {
-      const users = await prisma.user.findMany({});
-      const keySetting = await prisma.systemSetting.findUnique({ where: { key: 'BACKUP_ENCRYPTION_KEY' } });
-      const pass = keySetting?.value || 'B2BSecureSystemPassphrase2026';
+      const users = await prisma.user.findMany({
+        select: { id: true, email: true, name: true, passwordHash: true, role: true, createdAt: true }
+      });
+      const pass = process.env.BACKUP_ENCRYPTION_KEY;
+      if (!pass || pass.length < 32) throw new Error('BACKUP_ENCRYPTION_KEY must be configured with at least 32 characters.');
 
       // Encrypt user list with AES
       const encryptedJSON = encrypt(JSON.stringify(users), pass);
@@ -108,8 +109,8 @@ export async function POST(req: NextRequest) {
 
     // 3. TRIGGER RESTORE USERS FROM CLOUD BACKUP
     if (action === 'restore_users') {
-      const keySetting = await prisma.systemSetting.findUnique({ where: { key: 'BACKUP_ENCRYPTION_KEY' } });
-      const pass = keySetting?.value || 'B2BSecureSystemPassphrase2026';
+      const pass = process.env.BACKUP_ENCRYPTION_KEY;
+      if (!pass || pass.length < 32) throw new Error('BACKUP_ENCRYPTION_KEY must be configured with at least 32 characters.');
 
       const fileMeta = await findFileInFolder('users.enc.json', 'Users');
       if (!fileMeta || !fileMeta.id) {

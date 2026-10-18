@@ -115,7 +115,7 @@ export async function validateAndProcessImage(fileBuffer: Buffer): Promise<Proce
     throw new Error('Размер изображения не должен превышать 10 MB.');
   }
 
-  let metadata: sharp.Metadata;
+  let metadata: Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>;
   try {
     metadata = await sharp(fileBuffer).metadata();
   } catch (err) {

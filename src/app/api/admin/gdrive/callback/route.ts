@@ -1,20 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@googleapis/drive';
-import { requirePermission } from '@/lib/auth';
+import { requirePermissionAsync } from '@/lib/auth';
 import prisma from '@/lib/db';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = requirePermission(req, 'settings:manage');
+    const session = await requirePermissionAsync(req, 'settings:manage');
 
     const { searchParams } = new URL(req.url);
     const code = searchParams.get('code');
+    const returnedState = searchParams.get('state') || '';
+    const expectedState = req.cookies.get('gdrive_oauth_state')?.value || '';
     const errorParam = searchParams.get('error');
 
+    const returnedStateBuffer = Buffer.from(returnedState);
+    const expectedStateBuffer = Buffer.from(expectedState);
+    const validState = returnedStateBuffer.length > 0 && returnedStateBuffer.length === expectedStateBuffer.length &&
+      crypto.timingSafeEqual(returnedStateBuffer, expectedStateBuffer);
+    if (!validState) {
+      const response = NextResponse.json({ error: 'Недействительный OAuth state.' }, { status: 400 });
+      response.cookies.set('gdrive_oauth_state', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/admin/gdrive/callback', maxAge: 0 });
+      return response;
+    }
+
     if (errorParam) {
-      return NextResponse.redirect(new URL('/admin/settings?gdrive_error=' + encodeURIComponent(errorParam), req.url));
+      const response = NextResponse.redirect(new URL('/admin/settings?gdrive_error=authorization_denied', req.url));
+      response.cookies.set('gdrive_oauth_state', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/admin/gdrive/callback', maxAge: 0 });
+      return response;
     }
 
     if (!code) {
@@ -48,11 +63,15 @@ export async function GET(req: NextRequest) {
     // Redirect back to settings page with success parameter
     const redirectUrl = new URL('/admin/settings', req.url);
     redirectUrl.searchParams.set('gdrive_success', 'true');
-    return NextResponse.redirect(redirectUrl);
+    const response = NextResponse.redirect(redirectUrl);
+    response.cookies.set('gdrive_oauth_state', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/admin/gdrive/callback', maxAge: 0 });
+    return response;
   } catch (error: any) {
     console.error('[GDrive OAuth Error]', error);
     const redirectUrl = new URL('/admin/settings', req.url);
-    redirectUrl.searchParams.set('gdrive_error', encodeURIComponent(error.message));
-    return NextResponse.redirect(redirectUrl);
+    redirectUrl.searchParams.set('gdrive_error', 'authorization_failed');
+    const response = NextResponse.redirect(redirectUrl);
+    response.cookies.set('gdrive_oauth_state', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/admin/gdrive/callback', maxAge: 0 });
+    return response;
   }
 }

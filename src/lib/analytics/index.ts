@@ -104,7 +104,7 @@ export class AnalyticsService {
         ...(session.companyId ? { companyId: session.companyId } : { customerId: session.userId })
       } : null;
 
-      const [customerOrders, prevOrders, allSystemOrders] = await Promise.all([
+      const [customerOrders, prevOrders] = await Promise.all([
         prisma.order.findMany({
           where: whereClause,
           include: {
@@ -118,30 +118,13 @@ export class AnalyticsService {
             items: { include: { product: true } }
           },
           orderBy: { createdAt: 'asc' }
-        }) : Promise.resolve([]),
-        prisma.order.findMany({
-          where: { status: { in: VALID_STATUSES } },
-          select: {
-            createdAt: true,
-            items: {
-              select: {
-                productId: true,
-                productNameSnapshot: true,
-                itemTotalPrice: true,
-                quantityPacks: true,
-                price: true,
-                product: { select: { name: true } }
-              }
-            }
-          },
-          orderBy: { createdAt: 'asc' }
-        })
+        }) : Promise.resolve([])
       ]);
 
       const summary = calculateSummary(customerOrders, prevWhereClause ? prevOrders : undefined);
       const trend = calculateTrend(customerOrders, options.startDate, options.endDate);
       const products = calculateProductAnalytics(customerOrders, prevWhereClause ? prevOrders : undefined, options.monthKey);
-      const insights = calculateCustomerInsights(customerOrders, allSystemOrders);
+      const insights = calculateCustomerInsights(customerOrders);
 
       return {
         isCustomer: true,
