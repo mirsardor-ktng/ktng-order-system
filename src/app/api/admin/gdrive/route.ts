@@ -13,9 +13,12 @@ export async function GET(req: NextRequest) {
     
     // Fetch relevant settings
     const settings = await prisma.systemSetting.findMany({});
-    const syncEnabled = settings.find(s => s.key === 'GDRIVE_SYNC_ENABLED')?.value === 'true';
+    const syncSetting = settings.find(s => s.key === 'GDRIVE_SYNC_ENABLED');
+    const syncEnabled = syncSetting
+      ? syncSetting.value === 'true'
+      : process.env.GDRIVE_SYNC_ENABLED === 'true';
     const isAuthorized = !!settings.find(s => s.key === 'GDRIVE_REFRESH_TOKEN')?.value;
-    const folderId = settings.find(s => s.key === 'GDRIVE_FOLDER_ID')?.value || '';
+    const folderId = settings.find(s => s.key === 'GDRIVE_FOLDER_ID')?.value || process.env.GDRIVE_FOLDER_ID || '';
 
     const userCount = await prisma.user.count();
     const orderCount = await prisma.order.count();
@@ -24,6 +27,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       syncEnabled,
       isAuthorized,
+      syncConnected: syncEnabled && isAuthorized,
       folderId,
       backupEncryptionConfigured: Boolean(process.env.BACKUP_ENCRYPTION_KEY),
       metrics: {

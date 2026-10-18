@@ -46,6 +46,7 @@ export default function AdminOverview() {
     cases: 0
   });
   const [syncEnabled, setSyncEnabled] = useState(false);
+  const [syncAuthorized, setSyncAuthorized] = useState(false);
   const [latestOrders, setLatestOrders] = useState<Order[]>([]);
   const [latestLogs, setLatestLogs] = useState<AuditLog[]>([]);
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
@@ -76,6 +77,7 @@ export default function AdminOverview() {
         if (gdriveRes.ok) {
           gdriveData = await gdriveRes.json();
           setSyncEnabled(gdriveData.syncEnabled || false);
+          setSyncAuthorized(gdriveData.isAuthorized || false);
         }
       } catch (err) {
         console.error('[Dashboard] Failed to load GDrive settings:', err);
@@ -176,12 +178,12 @@ export default function AdminOverview() {
 
         {/* Sync Mode Banner */}
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold ${
-          syncEnabled 
+          syncEnabled && syncAuthorized
             ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400 glow-text-success'
             : 'bg-amber-500/15 border-amber-500/35 text-amber-400'
         }`}>
           <Database className="h-4 w-4" />
-          <span>GDrive Sync: {syncEnabled ? 'Подключен' : 'Локальный Fallback'}</span>
+          <span>GDrive Sync: {syncEnabled && syncAuthorized ? 'Подключен' : syncEnabled ? 'Требует авторизации' : 'Отключен'}</span>
         </div>
       </div>
 
