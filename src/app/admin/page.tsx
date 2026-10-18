@@ -45,8 +45,8 @@ export default function AdminOverview() {
     blocks: 0,
     cases: 0
   });
+  const [syncConnected, setSyncConnected] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(false);
-  const [syncAuthorized, setSyncAuthorized] = useState(false);
   const [latestOrders, setLatestOrders] = useState<Order[]>([]);
   const [latestLogs, setLatestLogs] = useState<AuditLog[]>([]);
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
@@ -73,11 +73,11 @@ export default function AdminOverview() {
 
       // 1. Fetch Google Drive Settings & Metrics
       try {
-        const gdriveRes = await fetch('/api/admin/gdrive');
+        const gdriveRes = await fetch('/api/admin/gdrive', { cache: 'no-store' });
         if (gdriveRes.ok) {
           gdriveData = await gdriveRes.json();
           setSyncEnabled(gdriveData.syncEnabled || false);
-          setSyncAuthorized(gdriveData.isAuthorized || false);
+          setSyncConnected(gdriveData.syncConnected === true);
         }
       } catch (err) {
         console.error('[Dashboard] Failed to load GDrive settings:', err);
@@ -178,12 +178,12 @@ export default function AdminOverview() {
 
         {/* Sync Mode Banner */}
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold ${
-          syncEnabled && syncAuthorized
+          syncConnected
             ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400 glow-text-success'
             : 'bg-amber-500/15 border-amber-500/35 text-amber-400'
         }`}>
           <Database className="h-4 w-4" />
-          <span>GDrive Sync: {syncEnabled && syncAuthorized ? 'Подключен' : syncEnabled ? 'Требует авторизации' : 'Отключен'}</span>
+          <span>GDrive Sync: {syncConnected ? 'Подключен' : syncEnabled ? 'Требует авторизации' : 'Отключен'}</span>
         </div>
       </div>
 

@@ -15,6 +15,7 @@ interface Metrics {
 
 export default function AdminSettings() {
   const [syncEnabled, setSyncEnabled] = useState(false);
+  const [syncConnected, setSyncConnected] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [backupEncryptionConfigured, setBackupEncryptionConfigured] = useState(false);
   const [folderId, setFolderId] = useState('');
@@ -34,10 +35,11 @@ export default function AdminSettings() {
   // Load active connection settings and db metrics
   const loadSettings = async () => {
     try {
-      const res = await fetch('/api/admin/gdrive');
+      const res = await fetch('/api/admin/gdrive', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setSyncEnabled(data.syncEnabled);
+        setSyncConnected(data.syncConnected === true);
         setIsAuthorized(data.isAuthorized);
         setBackupEncryptionConfigured(data.backupEncryptionConfigured === true);
         setFolderId(data.folderId);
@@ -246,7 +248,11 @@ export default function AdminSettings() {
                 <div>
                   <span className="block text-xs font-bold text-slate-200">Синхронизация Google Drive</span>
                   <span className="block text-[10px] text-slate-500 font-semibold mt-0.5 leading-normal">
-                    Включение синхронизации заказов, логов и пользователей в реальном времени.
+                    {syncConnected
+                      ? 'Подключено: синхронизация заказов, логов и пользователей активна.'
+                      : syncEnabled && !isAuthorized
+                        ? 'Требуется авторизация Google Drive.'
+                        : 'Синхронизация отключена. Включите её и сохраните параметры.'}
                   </span>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer select-none">
