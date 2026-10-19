@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
+import { hasPermission, requireAuthAsync, requirePermissionAsync, SessionExpiredError } from '@/lib/auth';
 import { uploadFile, downloadFile, findFileInFolder } from '@/lib/gdrive';
 import { encrypt, decrypt } from '@/lib/security';
 
@@ -9,7 +9,12 @@ import { encrypt, decrypt } from '@/lib/security';
  */
 export async function GET(req: NextRequest) {
   try {
-    await requirePermissionAsync(req, 'settings:manage');
+    const session = await requireAuthAsync(req);
+    const canManageSettings = hasPermission(session, 'settings:manage');
+    const canViewDashboardMetrics = hasPermission(session, ['users:read', 'users:manage']);
+    if (!canManageSettings && !canViewDashboardMetrics) {
+      return NextResponse.json({ error: 'У вас недостаточно прав для выполнения этого действия.' }, { status: 403 });
+    }
     
     // Fetch relevant settings
     const settings = await prisma.systemSetting.findMany({});
@@ -24,18 +29,24 @@ export async function GET(req: NextRequest) {
     const orderCount = await prisma.order.count();
     const templateCount = await prisma.template.count();
 
-    return NextResponse.json({
+    const response = {
       syncEnabled,
       isAuthorized,
       syncConnected: syncEnabled && isAuthorized,
-      folderId,
-      backupEncryptionConfigured: Boolean(process.env.BACKUP_ENCRYPTION_KEY),
       metrics: {
         totalUsers: userCount,
         totalOrders: orderCount,
         totalTemplates: templateCount
       }
-    });
+    };
+
+    // Dashboard viewers may see connection state and aggregate counts, but
+    // integration configuration remains limited to settings managers.
+    return NextResponse.json(canManageSettings ? {
+      ...response,
+      folderId,
+      backupEncryptionConfigured: Boolean(process.env.BACKUP_ENCRYPTION_KEY)
+    } : response);
   } catch (error: any) {
     if (error instanceof SessionExpiredError || error.code === 'SESSION_EXPIRED_ANOTHER_DEVICE') {
       return NextResponse.json({ error: error.message, code: 'SESSION_EXPIRED_ANOTHER_DEVICE' }, { status: 401 });
