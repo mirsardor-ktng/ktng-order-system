@@ -7,13 +7,42 @@ import { clearLoginFailures, isLoginRateLimited, recordFailedLogin } from '@/lib
 
 export const dynamic = 'force-dynamic';
 
+async function recordFailureWithBackoff(email: string, ip: string): Promise<void> {
+  const delayMs = await recordFailedLogin(email, ip);
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function verifyTurnstile(token: unknown, remoteIp: string, hostname: string): Promise<boolean> {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  if (!secret && !siteKey) return true; // Keep local/development installs usable until configured.
+  if (!secret || !siteKey || typeof token !== 'string' || !token || token.length > 2048) return false;
+
+  try {
+    const body = new URLSearchParams({ secret, response: token });
+    if (remoteIp !== 'unknown') body.set('remoteip', remoteIp);
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return false;
+    const result = await response.json();
+    return result.success === true && result.hostname === hostname && result.action === 'login';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * POST: Handles B2B login authentication.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, password } = body;
+    const { email, password, turnstileToken } = body;
 
     if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password || email.length > 254 || password.length > 128) {
       return NextResponse.json({ error: 'Пожалуйста, введите логин и пароль.' }, { status: 400 });
@@ -32,6 +61,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const turnstileEnabled = Boolean(process.env.TURNSTILE_SECRET_KEY || process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
+    if (turnstileEnabled && !(await verifyTurnstile(turnstileToken, ip, req.nextUrl.hostname))) {
+      await recordFailureWithBackoff(normalizedEmail, ip);
+      return NextResponse.json({ error: 'Проверка безопасности не пройдена. Обновите проверку и попробуйте снова.' }, { status: 403 });
+    }
+
     // 1. Locate user in database with roleTemplate
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
@@ -42,19 +77,19 @@ export async function POST(req: NextRequest) {
     });
 
     if (!user) {
-      await recordFailedLogin(normalizedEmail, ip);
+      await recordFailureWithBackoff(normalizedEmail, ip);
       return NextResponse.json({ error: 'Неверный логин или пароль.' }, { status: 401 });
     }
 
     if (!user.isActive) {
-      await recordFailedLogin(normalizedEmail, ip);
+      await recordFailureWithBackoff(normalizedEmail, ip);
       return NextResponse.json({ error: 'Неверный логин или пароль.' }, { status: 401 });
     }
 
     // 2. Safely verify bcrypt hash
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      await recordFailedLogin(normalizedEmail, ip);
+      await recordFailureWithBackoff(normalizedEmail, ip);
       return NextResponse.json({ error: 'Неверный логин или пароль.' }, { status: 401 });
     }
     await clearLoginFailures(normalizedEmail, ip);
