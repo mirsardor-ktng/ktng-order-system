@@ -40,11 +40,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Файл шаблона не прикреплен.' }, { status: 400 });
     }
 
-    if (!file.name.endsWith('.xlsx')) {
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
       return NextResponse.json({ error: 'Поддерживаются только шаблоны в формате .xlsx (Excel)' }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    const safeFileName = path.basename(file.name.replace(/\\/g, '/')).replace(/[^a-zA-Z0-9._-]/g, '_');
+    if (!safeFileName || safeFileName === '.' || safeFileName === '..') {
+      return NextResponse.json({ error: 'Некорректное имя файла.' }, { status: 400 });
+    }
     
     // --- Validation (Block 6) ---
     try {
@@ -80,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     // Sync with Google Drive (or mock)
     const uploadResult = await uploadFile(
-      file.name,
+      safeFileName,
       buffer,
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Templates'
@@ -95,19 +99,22 @@ export async function POST(req: NextRequest) {
       if (!fs.existsSync(templatesDir)) {
         fs.mkdirSync(templatesDir, { recursive: true });
       }
-      const localFilePath = path.join(templatesDir, file.name);
+      const localFilePath = path.resolve(templatesDir, safeFileName);
+      if (!localFilePath.startsWith(`${path.resolve(templatesDir)}${path.sep}`)) {
+        return NextResponse.json({ error: 'Некорректный путь файла.' }, { status: 400 });
+      }
       fs.writeFileSync(localFilePath, buffer);
     }
 
     // Save record in database
     const newTemplate = await prisma.template.create({
       data: {
-        name: file.name.replace('.xlsx', ''),
+        name: safeFileName.replace(/\.xlsx$/i, ''),
         fileId: uploadResult.fileId,
         isActive: false, // Uploaded templates are inactive by default
         version: versionName,
         isLocal: !gDriveConfig.enabled,
-        filePath: gDriveConfig.enabled ? null : `templates/${file.name}`
+        filePath: gDriveConfig.enabled ? null : `templates/${safeFileName}`
       }
     });
 
@@ -204,7 +211,11 @@ export async function DELETE(req: NextRequest) {
 
     // Delete local file if it exists
     if (template.filePath) {
-      const fullPath = path.join(process.cwd(), template.filePath);
+      const templatesDir = path.resolve(process.cwd(), 'templates');
+      const fullPath = path.resolve(process.cwd(), template.filePath);
+      if (!fullPath.startsWith(`${templatesDir}${path.sep}`)) {
+        return NextResponse.json({ error: 'Путь шаблона выходит за пределы каталога templates.' }, { status: 400 });
+      }
       if (fs.existsSync(fullPath)) {
         try {
           fs.unlinkSync(fullPath);

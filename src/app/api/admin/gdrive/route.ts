@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     // 2. TRIGGER MANUAL ENCRYPTED USER DATABASE BACKUP
     if (action === 'backup_users') {
       const users = await prisma.user.findMany({
-        select: { id: true, email: true, name: true, passwordHash: true, role: true, createdAt: true }
+        select: { id: true, email: true, name: true, passwordHash: true, role: true, roleTemplateId: true, roleTemplate: { select: { name: true } }, createdAt: true }
       });
       const pass = process.env.BACKUP_ENCRYPTION_KEY;
       if (!pass || pass.length < 32) throw new Error('BACKUP_ENCRYPTION_KEY must be configured with at least 32 characters.');
@@ -149,13 +149,18 @@ export async function POST(req: NextRequest) {
         }
 
         // Restore user safely
+        const roleTemplateName = typeof rUser.roleTemplate?.name === 'string' ? rUser.roleTemplate.name : (rUser.role === 'ADMIN' ? 'Администратор' : null);
+        const roleTemplate = roleTemplateName
+          ? await prisma.roleTemplate.findUnique({ where: { name: roleTemplateName }, select: { id: true } })
+          : null;
+        const restoredRole = ['ADMIN', 'SELLER', 'MANAGER', 'CUSTOMER'].includes(rUser.role) ? rUser.role : 'CUSTOMER';
         await prisma.user.create({
           data: {
-            id: rUser.id,
             email: rUser.email,
             name: rUser.name,
             passwordHash: rUser.passwordHash,
-            role: rUser.role,
+            role: roleTemplateName === 'Суперадминистратор' ? 'ADMIN' : restoredRole,
+            roleTemplateId: roleTemplate?.id ?? null,
             createdAt: new Date(rUser.createdAt)
           }
         });

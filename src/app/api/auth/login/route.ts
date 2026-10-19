@@ -20,8 +20,10 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const forwardedFor = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-    const ip = req.headers.get('x-real-ip')?.trim() || forwardedFor || 'unknown';
+    const forwardedFor = req.headers.get('x-forwarded-for')?.split(',').map((value) => value.trim()).filter(Boolean).at(-1);
+    // Do not trust X-Real-IP: clients can supply it. On Vercel the platform
+    // provides x-forwarded-for; use a bounded sanitized value for the bucket.
+    const ip = (forwardedFor || 'unknown').slice(0, 128);
     const rateLimit = await isLoginRateLimited(normalizedEmail, ip);
     if (rateLimit.limited) {
       return NextResponse.json({ error: 'Слишком много попыток входа. Повторите позже.' }, {
@@ -63,9 +65,7 @@ export async function POST(req: NextRequest) {
     let defaultDashboard = user.roleTemplate?.defaultDashboard || '/customer';
 
     // Superadmin fallback
-    const isSuperAdmin = user.roleTemplate
-      ? user.roleTemplate.isSystem && user.roleTemplate.name === 'Суперадминистратор'
-      : user.role === 'ADMIN';
+    const isSuperAdmin = Boolean(user.roleTemplate?.isSystem && user.roleTemplate.name === 'Суперадминистратор');
     if (isSuperAdmin) {
       permissions = ALL_PERMISSIONS;
       defaultDashboard = defaultDashboard || '/admin';

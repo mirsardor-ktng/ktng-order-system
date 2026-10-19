@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Check single active session per account
-    if (session.sessionVersion !== undefined && dbUser.sessionVersion !== session.sessionVersion) {
+    if (session.sessionVersion === undefined || dbUser.sessionVersion !== session.sessionVersion) {
       const cookieOptions = getCookieOptions(0);
       const response = NextResponse.json({
         authenticated: false,
@@ -45,11 +45,11 @@ export async function GET(req: NextRequest) {
       return response;
     }
 
-    let permissions = dbUser.roleTemplate?.permissions || session.permissions || [];
-    let roleName = dbUser.roleTemplate?.name || session.roleName || dbUser.role || 'Пользователь';
-    let defaultDashboard = dbUser.roleTemplate?.defaultDashboard || session.defaultDashboard || '/customer';
+    let permissions = dbUser.roleTemplate?.permissions || [];
+    let roleName = dbUser.roleTemplate?.name || dbUser.role || 'Пользователь';
+    let defaultDashboard = dbUser.roleTemplate?.defaultDashboard || '/customer';
 
-    const isSuperAdmin = dbUser.roleTemplate ? dbUser.roleTemplate.isSystem && dbUser.roleTemplate.name === 'Суперадминистратор' : dbUser.role === 'ADMIN';
+    const isSuperAdmin = Boolean(dbUser.roleTemplate?.isSystem && dbUser.roleTemplate.name === 'Суперадминистратор');
     if (isSuperAdmin) {
       permissions = ALL_PERMISSIONS;
       defaultDashboard = defaultDashboard || '/admin';
