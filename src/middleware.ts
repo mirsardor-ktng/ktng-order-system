@@ -69,8 +69,6 @@ async function verifyJWT(token: string, secret: string): Promise<any | null> {
 
 function hasPermission(payload: any, required: string[]): boolean {
   if (!payload) return false;
-  const isSuperAdmin = (payload.roleTemplateIsSystem === true && payload.roleName === 'Суперадминистратор') || (!payload.roleTemplateId && payload.role === 'ADMIN');
-  if (isSuperAdmin) return true;
   const perms: string[] = payload.permissions || [];
   return required.some(r => perms.includes(r));
 }
@@ -129,6 +127,27 @@ export async function middleware(req: NextRequest) {
     const response = NextResponse.redirect(new URL('/login', req.url));
     response.cookies.set(COOKIE_NAME, '', { maxAge: 0 });
     return response;
+  }
+
+  // Page access must use the current DB-backed permissions and sessionVersion,
+  // not claims that may have been revoked since this JWT was issued.
+  if (!isApiPath) {
+    try {
+      const sessionResponse = await fetch(new URL('/api/auth/me', req.url), {
+        headers: { cookie: `${COOKIE_NAME}=${encodeURIComponent(token)}` },
+        cache: 'no-store',
+      });
+      const sessionData = await sessionResponse.json();
+      if (!sessionResponse.ok || sessionData?.authenticated !== true || !sessionData?.user) {
+        const response = NextResponse.redirect(new URL('/login', req.url));
+        response.cookies.set(COOKIE_NAME, '', { maxAge: 0, expires: new Date(0) });
+        return response;
+      }
+      payload.permissions = Array.isArray(sessionData.user.permissions) ? sessionData.user.permissions : [];
+    } catch {
+      // Fail closed if the authoritative session check cannot be completed.
+      return new NextResponse('Не удалось проверить сессию. Повторите попытку.', { status: 503 });
+    }
   }
 
   // 1. Roles & Users management
