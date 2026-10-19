@@ -1,10 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Script from 'next/script';
 import { Mail, Lock, LogIn, Loader2, Shield, Briefcase, UserCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/context';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: HTMLElement, options: Record<string, unknown>) => string;
+      reset: (widgetId: string) => void;
+      remove: (widgetId: string) => void;
+    };
+  }
+}
 
 export default function Login() {
   const router = useRouter();
@@ -14,6 +25,25 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const turnstileContainer = useRef<HTMLDivElement>(null);
+  const turnstileWidgetId = useRef<string | null>(null);
+
+  const mountTurnstile = () => {
+    if (!turnstileSiteKey || !turnstileContainer.current || !window.turnstile || turnstileWidgetId.current) return;
+    turnstileWidgetId.current = window.turnstile.render(turnstileContainer.current, {
+      sitekey: turnstileSiteKey,
+      action: 'login',
+      callback: (token: string) => setTurnstileToken(token),
+      'expired-callback': () => setTurnstileToken(''),
+      'error-callback': () => setTurnstileToken(''),
+    });
+  };
+
+  useEffect(() => () => {
+    if (turnstileWidgetId.current) window.turnstile?.remove(turnstileWidgetId.current);
+  }, []);
 
   // Check if session is already active or redirected due to expiration
   useEffect(() => {
@@ -73,12 +103,17 @@ export default function Login() {
       setLoading(false);
       return;
     }
+    if (turnstileSiteKey && !turnstileToken) {
+      setError('Пройдите проверку безопасности.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, turnstileToken }),
       });
 
       const data = await res.json();
@@ -89,9 +124,13 @@ export default function Login() {
         router.replace(target);
       } else {
         setError(localizeError(data.error) || t('auth.invalidCredentials'));
+        setTurnstileToken('');
+        if (turnstileWidgetId.current) window.turnstile?.reset(turnstileWidgetId.current);
       }
     } catch (err) {
       setError(t('auth.networkError'));
+      setTurnstileToken('');
+      if (turnstileWidgetId.current) window.turnstile?.reset(turnstileWidgetId.current);
     } finally {
       setLoading(false);
     }
@@ -132,6 +171,16 @@ export default function Login() {
         {/* glass card container */}
         <div className="glass-panel rounded-2xl p-6 sm:p-8">
           <form onSubmit={handleLogin} className="space-y-5">
+            {turnstileSiteKey && (
+              <>
+                <Script
+                  src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+                  strategy="afterInteractive"
+                  onReady={mountTurnstile}
+                />
+                <div ref={turnstileContainer} className="flex justify-center" />
+              </>
+            )}
             {error && (
               <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3.5 text-xs text-red-400 animate-fade-in">
                 {error}
