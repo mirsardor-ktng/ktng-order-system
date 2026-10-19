@@ -32,6 +32,47 @@ export interface ExcelOrderData {
   }>;
 }
 
+function evaluateArithmetic(expression: string): number | null {
+  const tokens = expression.match(/\d+(?:\.\d+)?|[()+\-*/]/g);
+  if (!tokens || tokens.join('') !== expression.replace(/\s+/g, '')) return null;
+  let index = 0;
+  const factor = (): number => {
+    const token = tokens[index++];
+    if (token === '+') return factor();
+    if (token === '-') return -factor();
+    if (token === '(') {
+      const value = sum();
+      if (tokens[index++] !== ')') throw new Error('Unbalanced expression');
+      return value;
+    }
+    const value = Number(token);
+    if (!Number.isFinite(value)) throw new Error('Invalid number');
+    return value;
+  };
+  const product = (): number => {
+    let value = factor();
+    while (tokens[index] === '*' || tokens[index] === '/') {
+      const operator = tokens[index++];
+      const right = factor();
+      value = operator === '*' ? value * right : value / right;
+    }
+    return value;
+  };
+  const sum = (): number => {
+    let value = product();
+    while (tokens[index] === '+' || tokens[index] === '-') {
+      const operator = tokens[index++];
+      const right = product();
+      value = operator === '+' ? value + right : value - right;
+    }
+    return value;
+  };
+  try {
+    const value = sum();
+    return index === tokens.length && Number.isFinite(value) ? value : null;
+  } catch { return null; }
+}
+
 /**
  * Loads an Excel template, fills in the placeholder values, preserves styles and formatting,
  * and returns the completed spreadsheet as a Buffer.
@@ -108,16 +149,9 @@ export async function generateExcelOrder(
       substituted = substituted.replaceAll(key, String(val));
     }
 
-    const sanitized = substituted.replace(/[^0-9\s.+\-*/()]/g, '');
-    if (sanitized.trim() === substituted.trim() && /[+\-*/()]/g.test(substituted)) {
-      try {
-        const result = new Function(`return (${sanitized})`)();
-        if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
-          return result;
-        }
-      } catch {
-        // Fallback
-      }
+    if (/[+\-*/()]/.test(substituted)) {
+      const result = evaluateArithmetic(substituted);
+      if (result !== null) return result;
     }
     return substituted;
   };

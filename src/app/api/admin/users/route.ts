@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     } else {
       // Find matching default role template if only legacy role was provided
       let targetName = 'Клиент B2B (Заказчик)';
-      if (legacyRole === 'ADMIN') targetName = 'Суперадминистратор';
+      if (legacyRole === 'ADMIN') targetName = 'Администратор';
       else if (legacyRole === 'SELLER') targetName = 'Менеджер продаж';
       else if (legacyRole === 'MANAGER') targetName = 'Ограниченный менеджер';
 
@@ -115,6 +115,14 @@ export async function POST(req: NextRequest) {
       if (foundTpl) {
         resolvedRoleTemplateId = foundTpl.id;
         legacyRole = getLegacyRoleFromTemplateName(foundTpl.name);
+      }
+    }
+
+    if (resolvedRoleTemplateId) {
+      const assignedTemplate = await prisma.roleTemplate.findUnique({ where: { id: resolvedRoleTemplateId } });
+      if (!assignedTemplate) return NextResponse.json({ error: 'Шаблон роли не найден.' }, { status: 400 });
+      if (!isSuperAdmin(adminSession) && (assignedTemplate.isSystem && assignedTemplate.name === 'Суперадминистратор' || assignedTemplate.permissions.some((permission) => !adminSession.permissions?.includes(permission)))) {
+        return NextResponse.json({ error: 'Нельзя назначить права, которыми вы не обладаете.' }, { status: 403 });
       }
     }
 
@@ -204,6 +212,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Пользователь не найден.' }, { status: 404 });
     }
 
+    const targetIsSuperAdmin = Boolean(existingUser.roleTemplate?.isSystem && existingUser.roleTemplate.name === 'Суперадминистратор') || (existingUser.role === 'ADMIN' && !existingUser.roleTemplateId);
+    if (targetIsSuperAdmin && !isSuperAdmin(adminSession)) {
+      return NextResponse.json({ error: 'Изменять учетную запись Суперадминистратора может только Суперадминистратор.' }, { status: 403 });
+    }
+
     const updateData: any = {};
     if (name) updateData.name = name.trim();
     if (email) updateData.email = email.toLowerCase().trim();
@@ -282,6 +295,12 @@ export async function DELETE(req: NextRequest) {
 
     if (!userId) {
       return NextResponse.json({ error: 'ID не указан.' }, { status: 400 });
+    }
+
+    const target = await prisma.user.findUnique({ where: { id: userId }, include: { roleTemplate: true } });
+    const targetIsSuperAdmin = Boolean(target?.roleTemplate?.isSystem && target.roleTemplate.name === 'Суперадминистратор') || (target?.role === 'ADMIN' && !target.roleTemplateId);
+    if (targetIsSuperAdmin && !isSuperAdmin(adminSession)) {
+      return NextResponse.json({ error: 'Удалять учетную запись Суперадминистратора может только Суперадминистратор.' }, { status: 403 });
     }
 
     // Prevent Admin from deleting themselves

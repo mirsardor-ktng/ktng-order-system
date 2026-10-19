@@ -38,11 +38,11 @@ async function locked<T>(keys: string[], operation: (tx: Prisma.TransactionClien
   });
 }
 
-/** Shared across serverless instances via PostgreSQL, with per-email and per-IP buckets. */
+/** Shared across serverless instances via PostgreSQL, with per-email+IP and per-IP buckets. */
 export async function isLoginRateLimited(email: string, ip: string): Promise<{ limited: boolean; retryAfterSeconds: number }> {
   const now = Date.now();
   const buckets = [
-    { key: keyFor('email', email), limit: EMAIL_LIMIT },
+    { key: keyFor('email-ip', `${email}\n${ip}`), limit: EMAIL_LIMIT },
     { key: keyFor('ip', ip), limit: IP_LIMIT }
   ];
   return locked(buckets.map((bucket) => bucket.key), async (tx) => {
@@ -63,7 +63,7 @@ export async function isLoginRateLimited(email: string, ip: string): Promise<{ l
 export async function recordFailedLogin(email: string, ip: string): Promise<void> {
   const now = Date.now();
   const buckets = [
-    { key: keyFor('email', email), limit: EMAIL_LIMIT },
+    { key: keyFor('email-ip', `${email}\n${ip}`), limit: EMAIL_LIMIT },
     { key: keyFor('ip', ip), limit: IP_LIMIT }
   ];
   await locked(buckets.map((bucket) => bucket.key), async (tx) => {
@@ -87,7 +87,7 @@ export async function recordFailedLogin(email: string, ip: string): Promise<void
 }
 
 export async function clearLoginFailures(email: string, ip: string): Promise<void> {
-  const keys = [keyFor('email', email), keyFor('ip', ip)];
+  const keys = [keyFor('email-ip', `${email}\n${ip}`), keyFor('ip', ip)];
   await locked(keys, async (tx) => {
     await tx.systemSetting.deleteMany({ where: { key: { in: keys } } });
   });

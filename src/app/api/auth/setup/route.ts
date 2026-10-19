@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     const backupKey = process.env.BACKUP_ENCRYPTION_KEY;
     if (backupKey && backupKey.length >= 32) {
       const users = await prisma.user.findMany({
-        select: { id: true, email: true, name: true, passwordHash: true, role: true, createdAt: true }
+        select: { id: true, email: true, name: true, passwordHash: true, role: true, roleTemplateId: true, roleTemplate: { select: { name: true } }, createdAt: true }
       });
       try {
         await uploadFile('users.enc.json', encrypt(JSON.stringify(users), backupKey), 'application/json', 'Users');

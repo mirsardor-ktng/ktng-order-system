@@ -69,10 +69,10 @@ export function hasPermission(payload: JWTPayload | null, required: string | str
   return userPerms.includes(required);
 }
 
-/** Global access is reserved for the named system role or a legacy admin without a template. */
+/** Global access is reserved for the explicitly assigned system role template. */
 export function isSuperAdmin(payload: JWTPayload | null): boolean {
   if (!payload) return false;
-  return (payload.roleTemplateIsSystem === true && payload.roleName === 'Суперадминистратор') || (!payload.roleTemplateId && payload.role === 'ADMIN');
+  return payload.roleTemplateIsSystem === true && payload.roleName === 'Суперадминистратор' && Boolean(payload.roleTemplateId);
 }
 
 /**
@@ -90,7 +90,7 @@ export async function getEffectivePermissions(userId: string): Promise<{ permiss
     }
 
     const template = user.roleTemplate;
-    const isSuperAdmin = template ? template.isSystem && template.name === 'Суперадминистратор' : user.role === 'ADMIN';
+    const isSuperAdmin = Boolean(template?.isSystem && template.name === 'Суперадминистратор');
 
     if (isSuperAdmin) {
       return {
@@ -194,13 +194,11 @@ export async function requireAuthAsync(req: NextRequest): Promise<JWTPayload> {
   if (!session) {
     throw new Error('Необходима авторизация.');
   }
-
-  const isValid = await validateSessionVersion(session);
-  if (!isValid) {
+  const refreshed = await getSessionAsync(req);
+  if (!refreshed) {
     throw new SessionExpiredError();
   }
-
-  return session;
+  return refreshed;
 }
 
 /**
